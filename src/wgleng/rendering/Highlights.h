@@ -7,6 +7,16 @@
 #include <string_view>
 #include <glm/glm.hpp>
 
+// Highlights available by default:
+//         - 0: "default" (none)
+//         - 1: "black"
+//         - 2: "white"
+//         - 3: "red"
+//         - 4: "green"
+//         - 5: "blue"
+//         - 6: "yellow"
+//         - 7: "cyan"
+//         - 8: "magenta"
 class Highlights {
 public:
 	Highlights() = delete;

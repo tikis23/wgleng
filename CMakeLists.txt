@@ -44,10 +44,14 @@ set(BUILD_OPENGL3_DEMOS OFF CACHE BOOL "Build OpenGL3 Demos")
 set(BUILD_ROBOTICS OFF CACHE BOOL "Build Bullet Robotics")
 add_subdirectory(${DEPS_LOC}/bullet3)
 target_include_directories(${PROJECT_NAME} PUBLIC ${DEPS_LOC}/bullet3/src)
+target_link_libraries(${PROJECT_NAME} PUBLIC BulletDynamics BulletCollision LinearMath)
+
+add_subdirectory(${DEPS_LOC}/freetype)
+target_include_directories(${PROJECT_NAME} PUBLIC ${DEPS_LOC}/freetype/include)
+target_link_libraries(${PROJECT_NAME} PUBLIC freetype)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${DEPS_LOC}/glm/include)
 target_include_directories(${PROJECT_NAME} PUBLIC ${DEPS_LOC}/entt/include)
-target_link_libraries(${PROJECT_NAME} PUBLIC BulletDynamics BulletCollision LinearMath)
 
 file(GLOB_RECURSE DEPS_FILES_FOR_WARNING_DISABLE CONFIGURE_DEPENDS "${DEPS_LOC}/*" "${SOURCE_LOC}/vendor/*")
 set_source_files_properties(

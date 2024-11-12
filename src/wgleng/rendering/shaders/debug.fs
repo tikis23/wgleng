@@ -8,6 +8,6 @@ flat in uint u_highlightId;
 
 void main() {
     gMaterial = uvec4(0, 0, u_highlightId, 0);
-    gNormal = vec4(0., 0., 0., 1.0);
+    gNormal = vec4(0.1, 0.1, 0.1, 1.0);
 }
 )"

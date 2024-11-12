@@ -65,6 +65,7 @@ bool Highlights::HasChanged(bool reset) {
 void Highlights::Init() {
 	m_changed = true;
 	AddHighlight("default", { {0, 0, 0} });
+	AddHighlight("black",   { {-1, -1, -1} });
 	AddHighlight("white",   { {1, 1, 1} });
 	AddHighlight("red",     { {1, 0, 0} });
 	AddHighlight("green",   { {0, 1, 0} });

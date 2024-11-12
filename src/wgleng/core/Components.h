@@ -6,6 +6,7 @@
 #include <string>
 
 #include "../rendering/Mesh.h"
+#include "../rendering/Text.h"
 #include "EntityFlags.h"
 
 // may not be present
@@ -14,8 +15,8 @@ struct MeshComponent {
 	glm::vec3 position;
 	glm::vec3 rotation;
 	glm::vec3 scale{1};
-	uint8_t highlightId{0}; // resets every frame
-	bool hidden = false;    // resets every frame
+	uint8_t highlightId{0};        // resets every frame
+	bool hidden = false;           // resets every frame
 	bool hiddenPersistent = false; // needs to be reset manually
 };
 
@@ -29,6 +30,12 @@ struct TransformComponent {
 // may not be present
 struct RigidBodyComponent {
 	btRigidBody* body;
+};
+
+// may not be present
+struct TextComponent {
+	// these texts will be drawn relative to the rigidBody or Transform component
+	std::vector<std::shared_ptr<DrawableText>> texts;
 };
 
 // may not be present

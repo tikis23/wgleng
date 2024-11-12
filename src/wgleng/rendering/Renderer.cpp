@@ -14,6 +14,7 @@
 #include "../io/Input.h"
 #include "Debug.h"
 #include "Highlights.h"
+#include "Text.h"
 
 Renderer::Renderer()
 	: m_viewportWidth{1}, m_viewportHeight{1}, m_gbuffer(m_viewportWidth, m_viewportHeight),
@@ -168,6 +169,24 @@ void Renderer::ReloadShaders(ShaderType shaders) {
             #endif
 		}
 	}
+	// text
+	if (static_cast<uint64_t>(shaders) & static_cast<uint64_t>(ShaderType::TEXT)) {
+		m_textProgram = std::make_unique<ShaderProgram>("text");
+
+		#ifdef SHADER_HOT_RELOAD
+			m_shaderLoadingPrograms.push_back(&m_textProgram);
+			m_shaderLoadingQueue.push_back("shaders/text.vs");
+			m_shaderLoadingQueue.push_back("shaders/text.fs");
+		#else
+		const GLchar vertexSource[] = {
+					#include "shaders/text.vs"
+		};
+		const GLchar fragmentSource[] = {
+					#include "shaders/text.fs"
+		};
+		m_textProgram->Load(vertexSource, fragmentSource);
+		#endif
+	}
 	// debug
 	if (static_cast<uint64_t>(shaders) & static_cast<uint64_t>(ShaderType::DEBUG)) {
 		m_debugProgram = std::make_unique<ShaderProgram>("debug");
@@ -213,12 +232,17 @@ void Renderer::SetupUniforms() {
 	m_csmUniform.SetBindingIndex(GetNextUniformBindingIndex());
 	m_csmUniform.Bind();
 
+	m_textUniform.SetBindingIndex(GetNextUniformBindingIndex());
+	m_textUniform.Bind();
+
 	m_meshProgram->AddUniformBufferBinding("CameraUniform", m_cameraUniform.GetBindingIndex());
 	m_meshProgram->AddUniformBufferBinding("ModelMatricesUniform", m_modelUniform.GetBindingIndex());
 
 	m_lightingProgram->AddUniformBufferBinding("LightingInfoUniform", m_lightingInfoUniform.GetBindingIndex());
 	m_lightingProgram->AddUniformBufferBinding("CSMUniform", m_csmUniform.GetBindingIndex());
 	m_lightingProgram->AddUniformBufferBinding("MaterialUniform", m_materialUniform.GetBindingIndex());
+
+	m_textProgram->AddUniformBufferBinding("TextUniform", m_textUniform.GetBindingIndex());
 
 	for (auto& csmProgram : m_csmPrograms) {
 		csmProgram->AddUniformBufferBinding("CSMUniform", m_csmUniform.GetBindingIndex());
@@ -255,7 +279,7 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	m_cameraUniform.Update({
 		.projxview = camProjView,
 		.nearFarPlane = {camera->GetNearPlane(), camera->GetFarPlane()}
-		});
+	});
 
 	m_lightingInfoUniform.Update({
 		.sunlightDir = glm::normalize(scene->sunlightDir),
@@ -263,7 +287,7 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 		.cameraPos = camera->position,
 		.viewportSize_nearFarPlane = {m_viewportWidth, m_viewportHeight, camera->GetNearPlane(), camera->GetFarPlane()},
 		.invProjView = glm::inverse(camProjView)
-		});
+	});
 
 	static std::size_t lastMaterialCount = 0;
 	std::size_t materialCount = MeshRegistry::GetMaterials().size();
@@ -284,24 +308,24 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 		const glm::vec3& globalPos, const glm::vec3& localPos,
 		const glm::vec3& globalRot, const glm::vec3& localRot,
 		const glm::vec3& scale) -> glm::mat4 {
-			glm::mat4 model{ 1 };
-			model = glm::translate(model, globalPos);
-			model = glm::rotate(model, globalRot.z, glm::vec3(0, 0, 1));
-			model = glm::rotate(model, globalRot.y, glm::vec3(0, 1, 0));
-			model = glm::rotate(model, globalRot.x, glm::vec3(1, 0, 0));
-			model = glm::translate(model, localPos);
-			model = glm::rotate(model, localRot.x, glm::vec3(1, 0, 0));
-			model = glm::rotate(model, localRot.y, glm::vec3(0, 1, 0));
-			model = glm::rotate(model, localRot.z, glm::vec3(0, 0, 1));
-			model = glm::scale(model, scale);
-			return model;
-		};
+		glm::mat4 model{1};
+		model = glm::translate(model, globalPos);
+		model = glm::rotate(model, globalRot.z, glm::vec3(0, 0, 1));
+		model = glm::rotate(model, globalRot.y, glm::vec3(0, 1, 0));
+		model = glm::rotate(model, globalRot.x, glm::vec3(1, 0, 0));
+		model = glm::translate(model, localPos);
+		model = glm::rotate(model, localRot.x, glm::vec3(1, 0, 0));
+		model = glm::rotate(model, localRot.y, glm::vec3(0, 1, 0));
+		model = glm::rotate(model, localRot.z, glm::vec3(0, 0, 1));
+		model = glm::scale(model, scale);
+		return model;
+	};
 
 	uint32_t matrixCount = 0;
 	std::unordered_map<Mesh, std::vector<glm::mat4>> meshMatrices;
 	std::unordered_map<Mesh, std::vector<std::pair<glm::mat4, glm::vec3>>> meshHighlights;
 	for (auto&& [entity, meshComp, transformComp] :
-		scene->registry.view<MeshComponent, TransformComponent>(entt::exclude<RigidBodyComponent>).each()) {
+	     scene->registry.view<MeshComponent, TransformComponent>(entt::exclude<RigidBodyComponent>).each()) {
 		// check if hidden
 		if (meshComp.hidden || meshComp.hiddenPersistent) {
 			meshComp.hidden = false;
@@ -331,7 +355,6 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 
 		auto body = rbComp.body;
 		if (!body) continue;
-
 
 		// get model matrix
 		btTransform transform;
@@ -425,8 +448,8 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	// world
 	glBindFramebuffer(GL_FRAMEBUFFER, m_gbuffer.GetFBO());
 	glClear(GL_DEPTH_BUFFER_BIT);
-	glm::uvec4 uclearColor{ 0 };
-	glm::vec4 fclearColor{ 0 };
+	glm::uvec4 uclearColor{0};
+	glm::vec4 fclearColor{0};
 	glClearBufferuiv(GL_COLOR, 0, glm::value_ptr(uclearColor));
 	glClearBufferfv(GL_COLOR, 1, glm::value_ptr(fclearColor));
 	m_meshProgram->Use();
@@ -450,6 +473,125 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 		scene->GetPhysicsWorld().dynamicsWorld->debugDrawWorld();
 		DebugDraw::Draw();
 	}
+
+	// text
+	// group scene texts
+	std::unordered_map<std::string, std::vector<std::shared_ptr<DrawableText>>> textMap;
+	auto& texts = scene->GetTexts();
+	for (int i = 0; i < texts.size(); i++) {
+		// if text is dead, remove it
+		auto text = texts[i].lock();
+		if (!text) {
+			std::swap(texts[i], texts.back());
+			texts.pop_back();
+			i--;
+			continue;
+		}
+		textMap[text->GetFontName()].push_back(text);
+	}
+	// group texts on rigid bodies
+	for (auto&& [entity, textComp, rbComp] : scene->registry.view<TextComponent, RigidBodyComponent>().each()) {
+		auto body = rbComp.body;
+		if (!body) continue;
+		for (const auto& text : textComp.texts) {
+			// get model matrix
+			btTransform transform;
+			if (body->getMotionState()) body->getMotionState()->getWorldTransform(transform);
+			else transform = body->getWorldTransform();
+			transform.setOrigin(transform.getOrigin() +
+				btVector3(text->position.x, text->position.y, text->position.z));
+			glm::vec3 euler{};
+			transform.getRotation().getEulerZYX(euler.z, euler.y, euler.x);
+			glm::vec3 objPos = glm::vec3(transform.getOrigin().x(), transform.getOrigin().y(), transform.getOrigin().z());
+
+			text->useTransform = true;
+			text->transform = computeModelMatrix(
+				objPos - text->position, text->position,
+				euler, glm::radians(text->rotation),
+				text->scale);
+			textMap[text->GetFontName()].push_back(text);
+		}
+	}
+	// group texts on transforms
+	for (auto&& [entity, textComp, tComp] : scene->registry.view<TextComponent, TransformComponent>().each()) {
+		for (const auto& text : textComp.texts) {
+			// get model matrix
+			text->useTransform = true;
+			text->transform = computeModelMatrix(
+				tComp.position, text->position,
+				glm::radians(tComp.rotation), glm::radians(text->rotation),
+				tComp.scale * text->scale);
+			textMap[text->GetFontName()].push_back(text);
+		}
+	}
+
+	// draw 3d texts
+	glDisable(GL_CULL_FACE);
+	m_textProgram->Use();
+	for (auto& [fontName, textArray] : textMap) {
+		// set font texture
+		auto fontTexture = textArray[0]->GetFontTexture();
+		m_textProgram->SetTexture("tGlyphs", GL_TEXTURE_2D_ARRAY, 0, fontTexture);
+
+		// draw each text
+		for (int i = 0; i < textArray.size(); i++) {
+			const auto& text = textArray[i];
+			if (text->useOrtho) continue;
+			glm::mat4 model = glm::mat4(1);
+			if (text->useTransform) {
+				model = text->transform;
+			}
+			else {
+				model = glm::translate(model, text->position);
+				model = glm::rotate(model, glm::radians(text->rotation.x), glm::vec3(1, 0, 0));
+				model = glm::rotate(model, glm::radians(text->rotation.y), glm::vec3(0, 1, 0));
+				model = glm::rotate(model, glm::radians(text->rotation.z), glm::vec3(0, 0, 1));
+				model = glm::scale(model, text->scale);
+			}
+			m_textUniform.Update({
+				.projxview = camProjView,
+				.model = model
+			});
+			glBindVertexArray(text->GetVAO());
+			glDrawArrays(GL_TRIANGLES, 0, text->GetDrawCount());
+			// remove 3d text
+			std::swap(textArray[i], textArray.back());
+			textArray.pop_back();
+			i--;
+		}
+	}
+	// 2d text
+	glDisable(GL_DEPTH_TEST);
+	glm::mat4 ortho = glm::ortho(0.0f, static_cast<float>(m_viewportWidth), 0.0f, static_cast<float>(m_viewportHeight));
+	for (const auto& [fontName, textArray] : textMap) {
+		if (textArray.empty()) continue;
+		// set font texture
+		auto fontTexture = textArray[0]->GetFontTexture();
+		m_textProgram->SetTexture("tGlyphs", GL_TEXTURE_2D_ARRAY, 0, fontTexture);
+
+		// draw each text
+		for (const auto& text : textArray) {
+			glm::mat4 model = glm::mat4(1);
+			if (text->useTransform) {
+				model = text->transform;
+			}
+			else {
+				model = glm::translate(model, text->position + glm::vec3{0, 0, 1});
+				model = glm::rotate(model, glm::radians(text->rotation.x), glm::vec3(1, 0, 0));
+				model = glm::rotate(model, glm::radians(text->rotation.y), glm::vec3(0, 1, 0));
+				model = glm::rotate(model, glm::radians(text->rotation.z), glm::vec3(0, 0, 1));
+				model = glm::scale(model, text->scale);
+			}
+			m_textUniform.Update({
+				.projxview = ortho,
+				.model = model
+			});
+			glBindVertexArray(text->GetVAO());
+			glDrawArrays(GL_TRIANGLES, 0, text->GetDrawCount());
+		}
+	}
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_CULL_FACE);
 
 	// lighting
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);

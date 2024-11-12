@@ -29,7 +29,8 @@ public:
 	    DEBUG    = 1U << 0,
 		MESH     = 1U << 1,
 		LIGHTING = 1U << 2,
-		CSM      = 1U << 3
+		CSM      = 1U << 3,
+		TEXT     = 1U << 4
     };
 
     void ReloadShaders(ShaderType shaders = ShaderType::ALL);
@@ -53,6 +54,7 @@ private:
     std::unique_ptr<ShaderProgram> m_debugProgram;
     std::unique_ptr<ShaderProgram> m_meshProgram;
     std::unique_ptr<ShaderProgram> m_lightingProgram;
+    std::unique_ptr<ShaderProgram> m_textProgram;
     std::vector<std::unique_ptr<ShaderProgram>> m_csmPrograms;
 
     constexpr static inline uint32_t m_matricesPerUniformBuffer = 256;
@@ -84,10 +86,15 @@ private:
     struct MaterialUniform {
         Material materials[m_materialsPerUniformBuffer];
     };
+    struct TextUniform {
+        glm::mat4 projxview;
+        glm::mat4 model;
+    };
 
     UniformBuffer<void> m_modelUniform; // uses dynamic amount of glm::mat4's
     UniformBuffer<CameraUniform> m_cameraUniform;
     UniformBuffer<CSMUniform> m_csmUniform;
     UniformBuffer<LightingInfoUniform> m_lightingInfoUniform;
     UniformBuffer<MaterialUniform> m_materialUniform;
+    UniformBuffer<TextUniform> m_textUniform;
 };

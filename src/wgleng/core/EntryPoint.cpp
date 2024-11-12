@@ -3,12 +3,13 @@
 #include <stdio.h>
 
 #include "../io/Input.h"
-#include "../rendering/Mesh.h"
 #include "../rendering/Debug.h"
 #include "../rendering/Highlights.h"
+#include "../rendering/Mesh.h"
+#include "../rendering/Text.h"
 #include "../vendor/imgui/imgui.h"
-#include "../vendor/imgui/imgui_impl_sdl2.h"
 #include "../vendor/imgui/imgui_impl_opengl3.h"
+#include "../vendor/imgui/imgui_impl_sdl2.h"
 
 Context* ctx = nullptr;
 bool isHidden = false;
@@ -28,8 +29,8 @@ void mainLoop() {
 	// input
 	Input::Poll(false);
 
-    // tick
-    onTick(ctx, dt);
+	// tick
+	onTick(ctx, dt);
 
 	// logic
 	if (ctx->scene) ctx->scene->Update(dt);
@@ -53,18 +54,20 @@ void initialize() {
 		Highlights::Deinit();
 		return;
 	}
+	Text::Init();
 	DebugDraw::Init();
-    
-    onInit(ctx);
+
+	onInit(ctx);
 }
 void deinitialize() {
-    onDeinit(ctx);
+	onDeinit(ctx);
 
 	DebugDraw::Deinit();
 	MeshRegistry::Clear();
 	delete ctx;
 	ctx = nullptr;
 	Highlights::Deinit();
+	Text::Deinit();
 }
 
 // embind stuff

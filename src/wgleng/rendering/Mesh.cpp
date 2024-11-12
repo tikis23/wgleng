@@ -21,7 +21,7 @@ void MeshImpl::Load(std::size_t vertexCount, const Vertex* vertices, std::size_t
         // if material already exists, use that id
         const auto& existingMaterials = MeshRegistry::GetMaterials();
         bool found = false;
-        for (std::size_t j = 0; j < existingMaterials.size(); j++) {
+        for (std::size_t j = 1; j < existingMaterials.size(); j++) {
             if (glm::length(existingMaterials[j].diffuse - material.diffuse) < 0.004f) {
                 mappedMaterials[i] = j;
                 found = true;

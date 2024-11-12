@@ -74,8 +74,14 @@ void main() {
     float outline = getOutline(normal, lDepth);
     color = mix(color, outlineColor, outline);
 
-    // fill background color
-    if (length(normal) < 0.8) color = backgroundColor;
+    float selfDot = dot(normal, normal);
+    if (selfDot == 0.0) { // fill background color
+        color = backgroundColor;
+    // } else if (materialId == 0U && highlightId != 0U) { // if material is 0, show highlight only
+    } else if (selfDot < 0.1) { // if material is 0, show highlight only
+        color = highlightColor;
+        highlightColor = vec3(0.0);
+    }
 
     // gamma correction
     float gamma = 2.2;
@@ -183,7 +189,10 @@ float getOutline(vec3 normal, float lDepth) {
             // Discovered by accident. should have been normal buffer.
             float neighbourDepth = texture(tDepth, uvNeighbour).r;
             sobelPositions[x][y] = dot(normal, getWorldPos(uvNeighbour, neighbourDepth));
-            sobelNormals[x][y] = dot(normal, texture(tNormal, uvNeighbour).xyz);
+            vec3 neighbourNormal = texture(tNormal, uvNeighbour).xyz;
+            float neighbourSelfDot = dot(neighbourNormal, neighbourNormal);
+            if (neighbourSelfDot > 0.0 && neighbourSelfDot < 0.1) return 0.0; // disable outlines on text / debug draw
+            sobelNormals[x][y] = dot(normal, neighbourNormal);
         }
     }
     float positionG = sobel(sobelPositions);
