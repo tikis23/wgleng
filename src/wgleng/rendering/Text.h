@@ -22,7 +22,7 @@ public:
 	static void UnloadFont(std::string_view name);
 
 	// To use '$' in text, use "$$". To set highlightId use "$<highlightId>".
-	static std::shared_ptr<DrawableText> CreateText(std::string_view fontName, std::string_view text);
+	static std::shared_ptr<DrawableText> CreateText(std::string_view fontName, std::string_view text, float wrap = 0);
 
 private:
 	friend class DrawableText;
@@ -69,7 +69,7 @@ public:
 	glm::mat4 transform{ 1 };
 private:
 	friend class Text;
-	DrawableText(const std::shared_ptr<Text::fontData_t>& fontDataPtr, std::string_view text);
+	DrawableText(const std::shared_ptr<Text::fontData_t>& fontDataPtr, std::string_view text, float wrap);
 
 	struct textVertex_t {
 		glm::vec2 position;

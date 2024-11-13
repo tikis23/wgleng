@@ -85,43 +85,163 @@ void Text::UnloadFont(std::string_view name) {
 	m_fonts.erase(std::string(name));
 }
 
-std::shared_ptr<DrawableText> Text::CreateText(std::string_view fontName, std::string_view text) {
+std::shared_ptr<DrawableText> Text::CreateText(std::string_view fontName, std::string_view text, float wrap) {
 	std::shared_ptr<DrawableText> ret;
 	auto it = m_fonts.find(std::string(fontName));
 	if (it == m_fonts.end() || !(it->second)) {
 		printf("Font %s not loaded\n", fontName.data());
 		return ret;
 	}
-	ret.reset(new DrawableText(it->second, text));
+	ret.reset(new DrawableText(it->second, text, wrap));
 	return ret;
 }
 
-DrawableText::DrawableText(const std::shared_ptr<Text::fontData_t>& fontDataPtr, std::string_view text)
+DrawableText::DrawableText(const std::shared_ptr<Text::fontData_t>& fontDataPtr, std::string_view text, float wrap)
 	: m_fontData{fontDataPtr} {
+	std::string str = std::string(text);
+	// get highlights
+	std::vector<std::pair<int, uint8_t>> highlights;
+	for (int i = 0; i < str.size(); i++) {
+		char c = str[i];
+		// check for highlights
+		if (c == '$') {
+			str.erase(i, 1);
+			if (i >= str.size()) break;
+			c = str[i];
+			if (c != '<' && c != '$') break;
+			if (c == '<') {
+				std::string_view highlightStrFrom = std::string_view(str).substr(i + 1);
+				auto highlightStrTo = highlightStrFrom.find_first_of('>');
+				if (highlightStrTo == std::string_view::npos) break;
+				std::string_view highlightStr = highlightStrFrom.substr(0, highlightStrTo);
+				uint8_t hl = 0;
+				auto result = std::from_chars(highlightStr.data(), highlightStr.data() + highlightStr.size(), hl);
+				if (result.ec == std::errc::invalid_argument) {
+					break;
+				}
+				highlights.push_back({i, hl});
+				str.erase(highlightStrTo + 2);
+			}
+		}
+	}
+
+	// wrap text
+	if (wrap != 0) {
+		float maxAdvance = 0;
+		for (const auto& c : m_fontData->chars) {
+			maxAdvance = glm::max(maxAdvance, static_cast<float>(c.advance >> 6) / m_fontData->fontScale);
+		}
+		wrap = glm::max(wrap, maxAdvance);
+
+		auto updateHighlightIndexes = [&](int index) {
+			for (auto& [i, hl] : highlights) {
+				if (i >= index) i++;
+			}
+		};
+		auto getNextWordSize = [&](std::string_view sv) -> std::pair<int, float> {
+			int charCount = 0;
+			float size = 0;
+			for (const char c : sv) {
+				if (!std::isalnum(c)) break;
+				charCount++;
+				if (c >= m_fontData->chars.size()) continue;
+				const auto& charData = m_fontData->chars[c];
+				size += static_cast<float>(charData.advance >> 6) / m_fontData->fontScale;
+			}
+			return {charCount, size};
+		};
+		float x = 0;
+		for (int i = 0; i < str.size(); i++) {
+			char c = str[i];
+			if (c >= m_fontData->chars.size()) continue;
+			const auto& charData = m_fontData->chars[c];
+
+			// if newline found, reset x
+			if (c == '\n') {
+				x = 0;
+				continue;
+			}
+
+			// get next word size
+			auto [charCount, size] = getNextWordSize(std::string_view(str).substr(i));
+			if (charCount != 0) {  // word found
+				if (size > wrap) { // single word too big
+					 if (x != 0) { // if there is something before, add newline
+					 	str.insert(i, "\n");
+					 	updateHighlightIndexes(i);
+					 	x = 0;
+					 	i++;
+					 }
+					 float x2 = 0;
+					 for (int j = i; j < i + charCount; j++) {
+					 	char c2 = str[j];
+					 	if (c2 >= m_fontData->chars.size()) continue;
+					 	const auto& charData2 = m_fontData->chars[c2];
+					 	x2 += static_cast<float>(charData2.advance >> 6) / m_fontData->fontScale;
+					 	if (x2 > wrap) {
+					 		str.insert(j, "\n");
+					 		updateHighlightIndexes(j);
+					 		x = 0;
+					 		i = j;
+					 		break;
+					 	}
+					 }
+				}
+				else if (x + size > wrap) { // adding word would exceed wrap
+					if (c == ' ') {
+						str[i] = '\n';
+					}
+					else {
+						str.insert(i, "\n");
+						updateHighlightIndexes(i);
+					}
+					x = 0;
+				}
+				else { // word does not exceed wrap
+					x += size;
+					i += charCount;
+				}
+				continue;
+			}
+
+			// no word
+			size = static_cast<float>(charData.advance >> 6) / m_fontData->fontScale;
+			if (x + size > wrap) { // if adding char would exceed wrap, add newline
+				if (c == ' ') {
+					str[i] = '\n';
+				}
+				else {
+					str.insert(i, "\n");
+					updateHighlightIndexes(i);
+				}
+				x = 0;
+				continue;
+			}
+
+			// char does not exceed wrap
+			x += size;
+		}
+	}
+
 	// generate vertices
+	text = str;
 	std::vector<textVertex_t> vertices;
 	vertices.reserve(text.size() * 6);
 	glm::ivec2 pos{0, 0};
 	uint8_t highlightId = 1;
 	for (int i = 0; i < text.size(); i++) {
-		char c = text[i];
-		// check for highlights
-		if (c == '$') {
-			if (++i >= text.size()) break;
-			c = text[i];
-			if (c != '<' && c != '$') break;
-			if (c == '<') {
-				std::string_view highlightStrFrom = text.substr(i + 1);
-				auto highlightStrTo = highlightStrFrom.find_first_of('>');
-				if (highlightStrTo == std::string_view::npos) break;
-				std::string_view highlightStr = highlightStrFrom.substr(0, highlightStrTo);
-				auto result = std::from_chars(highlightStr.data(), highlightStr.data() + highlightStr.size(), highlightId);
-				if (result.ec == std::errc::invalid_argument) {
-					break;
-				}
-				i += highlightStrTo + 1;
-				continue;
+		if (!highlights.empty()) {
+			if (highlights.front().first == i) {
+				highlightId = highlights.front().second;
+				highlights.erase(highlights.begin());
 			}
+		}
+
+		char c = text[i];
+		if (c == '\n') {
+			pos.x = 0;
+			pos.y -= m_fontData->maxCharSize.y;
+			continue;
 		}
 
 		if (c >= m_fontData->chars.size()) continue;
