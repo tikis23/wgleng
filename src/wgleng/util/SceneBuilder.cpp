@@ -19,10 +19,6 @@ SceneBuilder::SceneBuilder(entt::registry& registry, PhysicsWorld& physicsWorld)
 	m_colliders.push_back("Box");
 	m_colliders.push_back("Sphere");
 	m_colliders.push_back("Capsule");
-
-	// for testing only
-	m_saveName = "world1";
-	Load();
 }
 
 void SceneBuilder::AddModel(std::string_view name) {
