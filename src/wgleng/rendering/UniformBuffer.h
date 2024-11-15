@@ -37,7 +37,7 @@ public:
     GLuint GetBindingIndex() const { return m_bindIndex; }
     uint32_t GetSize() const { return m_size; }
 
-    void Bind() requires (!std::is_void_v<T>) {
+    void Bind() const requires (!std::is_void_v<T>) {
         glBindBufferBase(GL_UNIFORM_BUFFER, m_bindIndex, m_ubo);
     }
     template<typename U = T>
@@ -46,10 +46,10 @@ public:
         glBufferSubData(GL_UNIFORM_BUFFER, 0, m_size, &data);
     }
     
-    void Bind(uint32_t offset, uint32_t range) requires (std::is_void_v<T>) {
+    void Bind(uint32_t offset, uint32_t range) const requires (std::is_void_v<T>) {
         glBindBufferRange(GL_UNIFORM_BUFFER, m_bindIndex, m_ubo, offset, range);
     }
-    void Update(GLintptr offset, GLsizeiptr size, const void* data) requires (std::is_void_v<T>) {
+    void Update(GLintptr offset, GLsizeiptr size, const void* data) const requires (std::is_void_v<T>) {
         glBindBuffer(GL_UNIFORM_BUFFER, m_ubo);
         glBufferSubData(GL_UNIFORM_BUFFER, offset, size, data);
     }

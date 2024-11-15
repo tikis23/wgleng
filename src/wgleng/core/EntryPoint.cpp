@@ -7,6 +7,7 @@
 #include "../rendering/Highlights.h"
 #include "../rendering/Mesh.h"
 #include "../rendering/Text.h"
+#include "../util/Metrics.h"
 #include "../vendor/imgui/imgui.h"
 #include "../vendor/imgui/imgui_impl_opengl3.h"
 #include "../vendor/imgui/imgui_impl_sdl2.h"
@@ -26,19 +27,24 @@ void mainLoop() {
 	ImGui_ImplSDL2_NewFrame();
 	ImGui::NewFrame();
 
-	// input
-	Input::Poll(false);
-
-	// tick
-	onTick(ctx, dt);
 
 	// logic
+	Metrics::MeasureDurationStart(Metric::LOGIC_TOTAL);
+	Input::Poll(false);
+	onTick(ctx, dt);
 	if (ctx->scene) ctx->scene->Update(dt);
+	Metrics::MeasureDurationStop(Metric::LOGIC_TOTAL);
 
 	// rendering
+	Metrics::MeasureDurationStart(Metric::RENDER_TOTAL);
 	ctx->renderer.SetViewportSize(ctx->rt.width, ctx->rt.height);
 	ctx->renderer.Render(isHidden, ctx->scene);
 	ctx->rt.SwapBuffers();
+	Metrics::MeasureDurationStop(Metric::RENDER_TOTAL);
+
+	// total frame time
+	Metrics::MeasureDurationStop(Metric::FRAME_TOTAL);
+	Metrics::MeasureDurationStart(Metric::FRAME_TOTAL);
 }
 void initialize() {
 	// create context

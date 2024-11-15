@@ -1,28 +1,26 @@
 #include "SceneBuilder.h"
 
-#include <format>
 #include <emscripten/fetch.h>
-#include <sstream>
-#include <limits>
 #include <glm/gtx/euler_angles.hpp>
+#include <sstream>
 
-#include "../vendor/imgui/imgui.h"
-#include "../vendor/imgui/imgui_stdlib.h"
 #include "../core/Components.h"
 #include "../core/EntityCreator.h"
 #include "../rendering/Debug.h"
 #include "../rendering/Highlights.h"
+#include "../vendor/imgui/imgui.h"
 #include "../vendor/imgui/imgui_internal.h"
+#include "../vendor/imgui/imgui_stdlib.h"
 
 SceneBuilder::SceneBuilder(entt::registry& registry, PhysicsWorld& physicsWorld)
 	: m_registry(registry), m_physicsWorld(physicsWorld) {
-	m_colliders.push_back("Box");
-	m_colliders.push_back("Sphere");
-	m_colliders.push_back("Capsule");
+	m_colliders.emplace_back("Box");
+	m_colliders.emplace_back("Sphere");
+	m_colliders.emplace_back("Capsule");
 }
 
 void SceneBuilder::AddModel(std::string_view name) {
-	m_models.push_back(std::string(name));
+	m_models.emplace_back(name);
 }
 
 void SceneBuilder::Play() {
@@ -37,14 +35,14 @@ void SceneBuilder::RecreateEntity(int32_t entityId, bool useMass, bool invisible
 	const float globalScale = invisible ? 0 : 1;
 	if (entityId == -1) return;
 	entt::entity& entity = m_savedStates[entityId].first;
-	State& state = m_savedStates[entityId].second;
+	const State& state = m_savedStates[entityId].second;
 	if (entity != entt::null) m_registry.destroy(entity);
 	entity = CreateDefaultEntity(m_registry);
 
-	m_registry.emplace_or_replace<FlagComponent>(entity, FlagComponent{ state.flags });
+	m_registry.emplace_or_replace<FlagComponent>(entity, FlagComponent{state.flags});
 
 	if (!state.tag.empty()) {
-		m_registry.emplace<TagComponent>(entity, TagComponent{ state.tag });
+		m_registry.emplace<TagComponent>(entity, TagComponent{state.tag});
 	}
 
 	if (state.selectedModel != -1) {
@@ -89,7 +87,7 @@ void SceneBuilder::Blink(int32_t entityId, bool clearOthers) {
 		}
 	}
 	if (entityId < 0) { // blink animation
-		TimePoint now;
+		const TimePoint now;
 		for (int i = 0; i < m_blinks.size(); i++) {
 			auto [index, tp] = m_blinks[i];
 			auto elapsed = now - tp;
@@ -113,7 +111,7 @@ void SceneBuilder::Blink(int32_t entityId, bool clearOthers) {
 		}
 	}
 	else { // add to blinking
-		m_blinks.push_back({entityId, TimePoint()});
+		m_blinks.emplace_back(entityId, TimePoint());
 	}
 }
 
@@ -181,13 +179,15 @@ void SceneBuilder::Update() {
 							m_selectedEntities.insert(i);
 							somethingSelected = i;
 						}
-					} else {
+					}
+					else {
 						if (isSelected) {
 							if (m_selectedEntities.size() > 1) {
 								m_selectedEntities.clear();
 								m_selectedEntities.insert(i);
 								somethingSelected = i;
-							} else {
+							}
+							else {
 								m_selectedEntities.clear();
 							}
 						}
@@ -205,7 +205,7 @@ void SceneBuilder::Update() {
 		}
 
 		if (ImGui::Button("Create")) {
-			m_savedStates.push_back({entt::null, State{}});
+			m_savedStates.emplace_back(entt::null, State{});
 			m_selectedEntities.clear();
 			m_selectedEntities.insert(m_savedStates.size() - 1);
 		}
@@ -233,7 +233,7 @@ void SceneBuilder::Update() {
 			std::set<int32_t> newSelections;
 			for (auto i : m_selectedEntities) {
 				auto stateCopy = m_savedStates[i].second;
-				m_savedStates.push_back({entt::null, stateCopy});
+				m_savedStates.emplace_back(entt::null, stateCopy);
 				int32_t newId = m_savedStates.size() - 1;
 				newSelections.insert(newId);
 				RecreateEntity(newId);
@@ -402,110 +402,111 @@ void SceneBuilder::Reset() {
 
 void SceneBuilder::Load() {
 #ifdef SHADER_HOT_RELOAD
-    emscripten_fetch_attr_t attr;
-    emscripten_fetch_attr_init(&attr);
-    attr.requestMethod[0] = 'G';
-    attr.requestMethod[1] = 'E';
-    attr.requestMethod[2] = 'T';
-    attr.requestMethod[3] = 0;
-    attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
-    attr.userData = this;
+	emscripten_fetch_attr_t attr;
+	emscripten_fetch_attr_init(&attr);
+	attr.requestMethod[0] = 'G';
+	attr.requestMethod[1] = 'E';
+	attr.requestMethod[2] = 'T';
+	attr.requestMethod[3] = 0;
+	attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
+	attr.userData = this;
 
-    attr.onsuccess = [](emscripten_fetch_t* fetch) {
-        auto builder = static_cast<SceneBuilder*>(fetch->userData);
-        if (fetch->status == 200) {
-            // parse data
-            std::string data(fetch->data, fetch->numBytes);
-            // remove header/footer
-            data = data.substr(data.find_first_of('{') + 1);
-            data = data.substr(0, data.find_last_of('}'));
-            std::istringstream stream(data);
+	attr.onsuccess = [](emscripten_fetch_t* fetch) {
+		auto builder = static_cast<SceneBuilder*>(fetch->userData);
+		if (fetch->status == 200) {
+			// parse data
+			std::string data(fetch->data, fetch->numBytes);
+			// remove header/footer
+			data = data.substr(data.find_first_of('{') + 1);
+			data = data.substr(0, data.find_last_of('}'));
+			std::istringstream stream(data);
 
-            // helper func
-            auto readvec3 = [](std::istringstream& stream) {
-                glm::vec3 v;
-                stream.ignore();
-                stream >> v.x;
-                stream.ignore();
-                stream >> v.y;
-                stream.ignore();
-                stream >> v.z;
-                stream.ignore();
-                return v;
-            };
-            
-            // parse lines
-            std::vector<State> states;
-            std::string linestr;
-            while (std::getline(stream, linestr)) {
-                if (linestr.length() < 15) continue;
-                std::istringstream line(linestr);
-                State state;
+			// helper func
+			auto readvec3 = [](std::istringstream& vec3Stream) {
+				glm::vec3 v;
+				vec3Stream.ignore();
+				vec3Stream >> v.x;
+				vec3Stream.ignore();
+				vec3Stream >> v.y;
+				vec3Stream.ignore();
+				vec3Stream >> v.z;
+				vec3Stream.ignore();
+				return v;
+			};
 
-                // opening brace
-                line.ignore(256, '{');
+			// parse lines
+			std::vector<State> states;
+			std::string linestr;
+			while (std::getline(stream, linestr)) {
+				if (linestr.length() < 15) continue;
+				std::istringstream line(linestr);
+				State state;
 
-                // global stuff
-                state.position = readvec3(line);
-                line.ignore();
-                state.rotation = readvec3(line);
-                line.ignore();
-                state.scale = readvec3(line);
-                line.ignore();
+				// opening brace
+				line.ignore(256, '{');
 
-                // model
-                line >> state.selectedModel;
-                line.ignore();
-                state.modelOffset = readvec3(line);
-                line.ignore();
-                state.modelRotation = readvec3(line);
-                line.ignore();
-                state.modelScale = readvec3(line);
-                line.ignore();
+				// global stuff
+				state.position = readvec3(line);
+				line.ignore();
+				state.rotation = readvec3(line);
+				line.ignore();
+				state.scale = readvec3(line);
+				line.ignore();
 
-                // tag
-                line.ignore();
-                std::getline(line, state.tag, '"');
-                line.ignore();
+				// model
+				line >> state.selectedModel;
+				line.ignore();
+				state.modelOffset = readvec3(line);
+				line.ignore();
+				state.modelRotation = readvec3(line);
+				line.ignore();
+				state.modelScale = readvec3(line);
+				line.ignore();
 
-                // flag
+				// tag
+				line.ignore();
+				std::getline(line, state.tag, '"');
+				line.ignore();
+
+				// flag
 				line >> state.flags;
 				line.ignore();
 
-                // collider
-                line >> state.selectedCollider;
-                line.ignore();
-                line >> state.mass;
-                line.ignore();
-                line >> state.friction;
-                line.ignore();
+				// collider
+				line >> state.selectedCollider;
+				line.ignore();
+				line >> state.mass;
+				line.ignore();
+				line >> state.friction;
+				line.ignore();
 
-                // box collider
-                state.boxColliderSize = readvec3(line);
-                line.ignore();
+				// box collider
+				state.boxColliderSize = readvec3(line);
+				line.ignore();
 
-                // sphere collider
-                line >> state.sphereColliderRadius;
-                line.ignore();
+				// sphere collider
+				line >> state.sphereColliderRadius;
+				line.ignore();
 
-                // capsule collider
-                line >> state.capsuleColliderRadius;
-                line.ignore();
-                line >> state.capsuleColliderHeight;
+				// capsule collider
+				line >> state.capsuleColliderRadius;
+				line.ignore();
+				line >> state.capsuleColliderHeight;
 
-                states.push_back(state);
-            }
-            builder->Load(states.size(), states.data(), true);
-        } else {
-            printf("Failed to load scene: %s\n", fetch->url);
-        }
-        emscripten_fetch_close(fetch);
-    };
-    attr.onerror = [](emscripten_fetch_t* fetch) {
-        printf("Failed to load scene: %s\n", fetch->url);
-        emscripten_fetch_close(fetch);
-    };
-    emscripten_fetch(&attr, ("http://localhost:8000/scenes/" + std::string(m_saveName) + ".h").c_str());
+				states.push_back(state);
+			}
+			builder->Load(states.size(), states.data(), true);
+		}
+		else {
+			printf("Failed to load scene: %s\n", fetch->url);
+		}
+		emscripten_fetch_close(fetch);
+	};
+	attr.onerror = [](emscripten_fetch_t* fetch) {
+		printf("Failed to load scene: %s\n", fetch->url);
+		emscripten_fetch_close(fetch);
+	};
+	emscripten_fetch(&attr, ("http://localhost:8000/scenes/" + std::string(m_saveName) + ".h").c_str());
 #else
 	printf("Loading from url only available in SHADER_HOT_RELOAD mode.\n");
 #endif
@@ -513,63 +514,64 @@ void SceneBuilder::Load() {
 void SceneBuilder::Load(uint32_t stateCount, const State* states, bool saveable) {
 	Reset();
 	for (uint32_t i = 0; i < stateCount; i++) {
-		m_savedStates.push_back({entt::null, states[i]});
+		m_savedStates.emplace_back(entt::null, states[i]);
 		RecreateEntity(i, !saveable);
 	}
 	if (!saveable) m_savedStates.clear();
 }
 void SceneBuilder::Save() {
 #ifdef SHADER_HOT_RELOAD
-    // create save data
-    std::string* saveDataIpl = new std::string("");
-    std::string& saveData = *saveDataIpl;
-    {
-        auto vec3str = [](const glm::vec3& v) {
-            return std::format("{{{},{},{}}}", v.x, v.y, v.z);
-        };
-        saveData += "#pragma once\n\n";
-        saveData += "#include <stdint.h>\n";
-        saveData += "#include \"../util/SceneBuilder.h\"\n\n";
-        saveData += std::format("constexpr uint32_t {}_stateVersion = {};\n", m_saveName, m_stateVersion);
-        saveData += std::format("constexpr uint32_t {}_stateCount = {};\n", m_saveName, m_savedStates.size());
-        saveData += std::format("constexpr SceneBuilder::State {}_states[] = {{\n", m_saveName);
-        for (const auto& pair : m_savedStates) {
-            const State& state = pair.second;
-            saveData += std::format("   {{{},{},{},", vec3str(state.position), vec3str(state.rotation), vec3str(state.scale));
-            saveData += std::format("{},{},{},{},", state.selectedModel, vec3str(state.modelOffset), vec3str(state.modelRotation), vec3str(state.modelScale));
-            saveData += std::format("\"{}\",{},", state.tag, state.flags);
-            saveData += std::format("{},{},{},{},", state.selectedCollider, state.mass, state.friction, vec3str(state.boxColliderSize));
-            saveData += std::format("{},{},{}}},\n", state.sphereColliderRadius, state.capsuleColliderRadius, state.capsuleColliderHeight);
-        }
-        saveData += "};\n";
-    }
+	// create save data
+	std::string* saveDataIpl = new std::string("");
+	std::string& saveData = *saveDataIpl;
+	{
+		auto vec3Str = [](const glm::vec3& v) {
+			return std::format("{{{},{},{}}}", v.x, v.y, v.z);
+		};
+		saveData += "#pragma once\n\n";
+		saveData += "#include <stdint.h>\n";
+		saveData += "#include <wgleng/util/SceneBuilder.h>\n\n";
+		saveData += std::format("constexpr uint32_t {}_stateVersion = {};\n", m_saveName, m_stateVersion);
+		saveData += std::format("constexpr uint32_t {}_stateCount = {};\n", m_saveName, m_savedStates.size());
+		saveData += std::format("constexpr SceneBuilder::State {}_states[] = {{\n", m_saveName);
+		for (const auto& pair : m_savedStates) {
+			const State& state = pair.second;
+			saveData += std::format("   {{{},{},{},", vec3Str(state.position), vec3Str(state.rotation), vec3Str(state.scale));
+			saveData += std::format("{},{},{},{},", state.selectedModel, vec3Str(state.modelOffset), vec3Str(state.modelRotation),
+				vec3Str(state.modelScale));
+			saveData += std::format("\"{}\",{},", state.tag, state.flags);
+			saveData += std::format("{},{},{},{},", state.selectedCollider, state.mass, state.friction, vec3Str(state.boxColliderSize));
+			saveData += std::format("{},{},{}}},\n", state.sphereColliderRadius, state.capsuleColliderRadius, state.capsuleColliderHeight);
+		}
+		saveData += "};\n";
+	}
 
-    // save to file
-    emscripten_fetch_attr_t attr;
-    emscripten_fetch_attr_init(&attr);
-    const char* headers[] = {
-        "Content-Type", "text/plain", 0
-    };
-    attr.requestHeaders = headers;
-    attr.requestMethod[0] = 'P';
-    attr.requestMethod[1] = 'O';
-    attr.requestMethod[2] = 'S';
-    attr.requestMethod[3] = 'T';
-    attr.requestMethod[4] = 0;
-    attr.requestData = saveData.c_str();
-    attr.requestDataSize = saveData.size();
-    attr.userData = saveDataIpl;
+	// save to file
+	emscripten_fetch_attr_t attr;
+	emscripten_fetch_attr_init(&attr);
+	const char* headers[] = {
+		"Content-Type", "text/plain", nullptr
+	};
+	attr.requestHeaders = headers;
+	attr.requestMethod[0] = 'P';
+	attr.requestMethod[1] = 'O';
+	attr.requestMethod[2] = 'S';
+	attr.requestMethod[3] = 'T';
+	attr.requestMethod[4] = 0;
+	attr.requestData = saveData.c_str();
+	attr.requestDataSize = saveData.size();
+	attr.userData = saveDataIpl;
 
-    auto finishSequence = [](emscripten_fetch_t* fetch) {
-        auto saveDataIpl = static_cast<std::string*>(fetch->userData);
-        delete saveDataIpl;
-        emscripten_fetch_close(fetch);
-    };
+	auto finishSequence = [](emscripten_fetch_t* fetch) {
+		const auto usaveDataIpl = static_cast<std::string*>(fetch->userData);
+		delete usaveDataIpl;
+		emscripten_fetch_close(fetch);
+	};
 
-    attr.onsuccess = finishSequence;
-    attr.onerror = finishSequence;
+	attr.onsuccess = finishSequence;
+	attr.onerror = finishSequence;
 
-    emscripten_fetch(&attr, ("http://localhost:8000/SaveScene/" + m_saveName).c_str());
+	emscripten_fetch(&attr, ("http://localhost:8000/SaveScene/" + m_saveName).c_str());
 #else
 	printf("Saving only available in SHADER_HOT_RELOAD mode.\n");
 #endif

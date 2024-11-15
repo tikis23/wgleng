@@ -1,24 +1,24 @@
 #include "Renderer.h"
-#include "Renderer.h"
 
+#include <emscripten/fetch.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <unordered_map>
 #include <vector>
-#include <glm/gtc/matrix_transform.hpp>
-#include <emscripten/fetch.h>
-#include <glm/gtc/type_ptr.hpp>
 
-#include "../vendor/imgui/imgui.h"
-#include "../vendor/imgui/imgui_impl_sdl2.h"
-#include "../vendor/imgui/imgui_impl_opengl3.h"
 #include "../core/Components.h"
-#include "../io/Input.h"
+#include "../util/Metrics.h"
+#include "../util/ModelMatrix.h"
+#include "../vendor/imgui/imgui.h"
+#include "../vendor/imgui/imgui_impl_opengl3.h"
 #include "Debug.h"
 #include "Highlights.h"
 #include "Text.h"
 
 Renderer::Renderer()
-	: m_viewportWidth{1}, m_viewportHeight{1}, m_gbuffer(m_viewportWidth, m_viewportHeight),
-	  m_csmWidth{1024}, m_csmHeight{1024}, m_csmbuffer(m_csmWidth, m_csmHeight, {100, 500, 1000}) {
+	: m_viewportWidth{1}, m_viewportHeight{1}, m_csmWidth{1024}, m_csmHeight{1024},
+	  m_gbuffer(m_viewportWidth, m_viewportHeight),
+	  m_csmbuffer(m_csmWidth, m_csmHeight, {100, 500, 1000}) {
 	ReloadShaders();
 
 	// GL settings
@@ -30,9 +30,14 @@ Renderer::Renderer()
 
 	glClearColor(0.5f, 0.4f, 0.3f, 1.0f);
 }
-Renderer::~Renderer() {}
-
-void Renderer::LoadShaderFromFile(std::string file) {
+Renderer::~Renderer() = default;
+void Renderer::SetViewportSize(int32_t width, int32_t height) {
+	if (m_viewportWidth == width && m_viewportHeight == height) return;
+	m_viewportWidth = width;
+	m_viewportHeight = height;
+	m_gbuffer.Resize(width, height);
+}
+void Renderer::LoadShaderFromFile(const std::string& file) {
 	if (file.empty()) {
 		for (int i = m_shaderLoadingPrograms.size(); i > 0; i--) {
 			auto vert = m_shaderLoadingOutput.front();
@@ -81,7 +86,6 @@ void Renderer::LoadShaderFromFile(std::string file) {
 	};
 	emscripten_fetch(&attr, ("http://localhost:8000/rendering/" + std::string(file)).c_str());
 }
-
 void Renderer::ReloadShaders(ShaderType shaders) {
 	m_shadersLoading = true;
 	printf("Loading shaders ...\n");
@@ -92,9 +96,9 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 		m_meshProgram->SetConstant("MODELS_PER_UBO", std::to_string(m_matricesPerUniformBuffer));
 
         #ifdef SHADER_HOT_RELOAD
-            m_shaderLoadingPrograms.push_back(&m_meshProgram);
-            m_shaderLoadingQueue.push_back("shaders/mesh.vs");
-            m_shaderLoadingQueue.push_back("shaders/mesh.fs");
+		m_shaderLoadingPrograms.push_back(&m_meshProgram);
+		m_shaderLoadingQueue.push_back("shaders/mesh.vs");
+		m_shaderLoadingQueue.push_back("shaders/mesh.fs");
         #else
 		const GLchar vertexSource[] = {
                 #include "shaders/mesh.vs"
@@ -131,9 +135,9 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 		}());
 
         #ifdef SHADER_HOT_RELOAD
-            m_shaderLoadingPrograms.push_back(&m_lightingProgram);
-            m_shaderLoadingQueue.push_back("shaders/light.vs");
-            m_shaderLoadingQueue.push_back("shaders/light.fs");
+		m_shaderLoadingPrograms.push_back(&m_lightingProgram);
+		m_shaderLoadingQueue.push_back("shaders/light.vs");
+		m_shaderLoadingQueue.push_back("shaders/light.fs");
         #else
 		const GLchar vertexSource[] = {
                 #include "shaders/light.vs"
@@ -155,9 +159,9 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 			csmProgram->SetConstant("MAX_FRUSTUMS", std::to_string(m_maxCSMFrustums));
 
             #ifdef SHADER_HOT_RELOAD
-                m_shaderLoadingPrograms.push_back(&csmProgram);
-                m_shaderLoadingQueue.push_back("shaders/csm.vs");
-                m_shaderLoadingQueue.push_back("shaders/csm.fs");
+			m_shaderLoadingPrograms.push_back(&csmProgram);
+			m_shaderLoadingQueue.push_back("shaders/csm.vs");
+			m_shaderLoadingQueue.push_back("shaders/csm.fs");
             #else
 			const GLchar vertexSource[] = {
                     #include "shaders/csm.vs"
@@ -174,9 +178,9 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 		m_textProgram = std::make_unique<ShaderProgram>("text");
 
 		#ifdef SHADER_HOT_RELOAD
-			m_shaderLoadingPrograms.push_back(&m_textProgram);
-			m_shaderLoadingQueue.push_back("shaders/text.vs");
-			m_shaderLoadingQueue.push_back("shaders/text.fs");
+		m_shaderLoadingPrograms.push_back(&m_textProgram);
+		m_shaderLoadingQueue.push_back("shaders/text.vs");
+		m_shaderLoadingQueue.push_back("shaders/text.fs");
 		#else
 		const GLchar vertexSource[] = {
 					#include "shaders/text.vs"
@@ -192,9 +196,9 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 		m_debugProgram = std::make_unique<ShaderProgram>("debug");
 
         #ifdef SHADER_HOT_RELOAD
-            m_shaderLoadingPrograms.push_back(&m_debugProgram);
-            m_shaderLoadingQueue.push_back("shaders/debug.vs");
-            m_shaderLoadingQueue.push_back("shaders/debug.fs");
+		m_shaderLoadingPrograms.push_back(&m_debugProgram);
+		m_shaderLoadingQueue.push_back("shaders/debug.vs");
+		m_shaderLoadingQueue.push_back("shaders/debug.fs");
         #else
 		const GLchar vertexSource[] = {
                 #include "shaders/debug.vs"
@@ -207,13 +211,13 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 	}
 
     #ifdef SHADER_HOT_RELOAD
-        std::string shaderFileToLoad = m_shaderLoadingQueue.front(); m_shaderLoadingQueue.pop_front();
-        LoadShaderFromFile(shaderFileToLoad);
+	std::string shaderFileToLoad = m_shaderLoadingQueue.front();
+	m_shaderLoadingQueue.pop_front();
+	LoadShaderFromFile(shaderFileToLoad);
     #else
 	SetupUniforms();
     #endif
 }
-
 void Renderer::SetupUniforms() {
 	// setup uniforms
 	m_nextUniformBindingIndex = 0;
@@ -254,10 +258,7 @@ void Renderer::SetupUniforms() {
 	m_shadersLoading = false;
 	printf("Shaders loaded.\n");
 }
-
 void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
-	ImGui::Render();
-
 	// check for shader reloads
 	if (Highlights::HasChanged(true)) {
 		ReloadShaders(ShaderType::LIGHTING);
@@ -268,14 +269,62 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 		return;
 	}
 
-	// triangle debug
-	static bool showWireframe = false;
-	if (Input::IsHeld(SDL_SCANCODE_LCTRL) && Input::JustPressed(SDL_SCANCODE_I)) showWireframe = !showWireframe;
+	Metrics::MeasureDurationStart(Metric::UPDATE_UNIFORMS);
+	UpdateUniforms(scene);
+	Metrics::MeasureDurationStop(Metric::UPDATE_UNIFORMS, true);
 
-	// update uniforms
+	Metrics::MeasureDurationStart(Metric::UPDATE_MESHES);
+	UpdateRenderableMeshes(scene);
+	Metrics::MeasureDurationStop(Metric::UPDATE_MESHES, true);
+
+	// setup for shadows
+	glViewport(0, 0, m_csmWidth, m_csmHeight);
+	glCullFace(GL_FRONT);
+
+	Metrics::MeasureDurationStart(Metric::RENDER_SHADOWS);
+	RenderShadowMaps();
+	Metrics::MeasureDurationStop(Metric::RENDER_SHADOWS, true);
+
+	// setup for meshes
+	glViewport(0, 0, m_viewportWidth, m_viewportHeight);
+	glCullFace(GL_BACK);
+
+	// setup gbuffer
+	glBindFramebuffer(GL_FRAMEBUFFER, m_gbuffer.GetFBO());
+	glClear(GL_DEPTH_BUFFER_BIT);
+	glm::uvec4 uclearColor{0};
+	glm::vec4 fclearColor{0};
+	glClearBufferuiv(GL_COLOR, 0, glm::value_ptr(uclearColor));
+	glClearBufferfv(GL_COLOR, 1, glm::value_ptr(fclearColor));
+
+	Metrics::MeasureDurationStart(Metric::RENDER_MESHES);
+	RenderMeshes();
+	Metrics::MeasureDurationStop(Metric::RENDER_MESHES, true);
+
+	RenderDebug(scene);
+
+	Metrics::MeasureDurationStart(Metric::RENDER_TEXT);
+	RenderText(scene);
+	Metrics::MeasureDurationStop(Metric::RENDER_TEXT, true);
+
+	// lighting
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	Metrics::MeasureDurationStart(Metric::RENDER_LIGHTING);
+	RenderLighting();
+	Metrics::MeasureDurationStop(Metric::RENDER_LIGHTING, true);
+
+	// imgui
+	Metrics::Show();
+	ImGui::Render();
+	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
+
+void Renderer::UpdateUniforms(const std::shared_ptr<Scene>& scene) {
 	auto& camera = scene->GetCamera();
 	camera->Update(m_viewportWidth, m_viewportHeight);
 	const glm::mat4 camProjView = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+
 	m_cameraUniform.Update({
 		.projxview = camProjView,
 		.nearFarPlane = {camera->GetNearPlane(), camera->GetFarPlane()}
@@ -289,38 +338,21 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 		.invProjView = glm::inverse(camProjView)
 	});
 
-	static std::size_t lastMaterialCount = 0;
-	std::size_t materialCount = MeshRegistry::GetMaterials().size();
-	if (lastMaterialCount != materialCount) { // could be made more efficient but meh
+	const std::size_t materialCount = MeshRegistry::GetMaterials().size();
+	if (m_materialCount != materialCount) { // could be made more efficient but meh
 		MaterialUniform materialData;
-		std::copy(MeshRegistry::GetMaterials().begin(), MeshRegistry::GetMaterials().end(), materialData.materials);
+		std::ranges::copy(MeshRegistry::GetMaterials(), materialData.materials);
 		m_materialUniform.Update(materialData);
-		lastMaterialCount = materialCount;
+		m_materialCount = materialCount;
 	}
 
 	const auto lightSpaceMatrices = m_csmbuffer.GetLightSpaceMatrices(camera, scene->sunlightDir);
 	CSMUniform csmData;
-	std::copy(lightSpaceMatrices.begin(), lightSpaceMatrices.end(), csmData.lightSpaceMatrices);
+	std::ranges::copy(lightSpaceMatrices, csmData.lightSpaceMatrices);
 	m_csmUniform.Update(csmData);
-
+}
+void Renderer::UpdateRenderableMeshes(const std::shared_ptr<Scene>& scene) {
 	// get renderable meshes and matrices
-	constexpr auto computeModelMatrix = [](
-		const glm::vec3& globalPos, const glm::vec3& localPos,
-		const glm::vec3& globalRot, const glm::vec3& localRot,
-		const glm::vec3& scale) -> glm::mat4 {
-		glm::mat4 model{1};
-		model = glm::translate(model, globalPos);
-		model = glm::rotate(model, globalRot.z, glm::vec3(0, 0, 1));
-		model = glm::rotate(model, globalRot.y, glm::vec3(0, 1, 0));
-		model = glm::rotate(model, globalRot.x, glm::vec3(1, 0, 0));
-		model = glm::translate(model, localPos);
-		model = glm::rotate(model, localRot.x, glm::vec3(1, 0, 0));
-		model = glm::rotate(model, localRot.y, glm::vec3(0, 1, 0));
-		model = glm::rotate(model, localRot.z, glm::vec3(0, 0, 1));
-		model = glm::scale(model, scale);
-		return model;
-	};
-
 	uint32_t matrixCount = 0;
 	std::unordered_map<Mesh, std::vector<glm::mat4>> meshMatrices;
 	std::unordered_map<Mesh, std::vector<std::pair<glm::mat4, glm::vec3>>> meshHighlights;
@@ -412,6 +444,7 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 			currentBatchSize += padding / sizeof(glm::mat4);
 		}
 	}
+	m_renderableMeshes.batches = std::move(batches);
 
 	// resize ubo if needed
 	const uint32_t requiredSize = matrixCount * sizeof(glm::mat4) + sizeof(glm::mat4) * m_matricesPerUniformBuffer;
@@ -420,10 +453,8 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	}
 	// upload matrices
 	m_modelUniform.Update(0, batchedMatrices.size() * sizeof(glm::mat4), batchedMatrices.data());
-
-	// csm
-	glViewport(0, 0, m_csmWidth, m_csmHeight);
-	glCullFace(GL_FRONT);
+}
+void Renderer::RenderShadowMaps() const {
 	for (int i = 0; i < m_csmbuffer.GetFBOs().size(); i++) {
 		const auto& csmProgram = m_csmPrograms[i];
 		csmProgram->Use();
@@ -431,8 +462,8 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 		glClear(GL_DEPTH_BUFFER_BIT);
 		uint32_t currentVao = 0;
-		for (auto& batch : batches) {
-			auto vao = batch.mesh->GetVAO();
+		for (const auto& batch : m_renderableMeshes.batches) {
+			const auto vao = batch.mesh->GetVAO();
 			if (currentVao != vao) {
 				glBindVertexArray(vao);
 				currentVao = vao;
@@ -441,31 +472,22 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 			glDrawArraysInstanced(GL_TRIANGLES, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
 		}
 	}
-
-	glViewport(0, 0, m_viewportWidth, m_viewportHeight);
-	glCullFace(GL_BACK);
-
-	// world
-	glBindFramebuffer(GL_FRAMEBUFFER, m_gbuffer.GetFBO());
-	glClear(GL_DEPTH_BUFFER_BIT);
-	glm::uvec4 uclearColor{0};
-	glm::vec4 fclearColor{0};
-	glClearBufferuiv(GL_COLOR, 0, glm::value_ptr(uclearColor));
-	glClearBufferfv(GL_COLOR, 1, glm::value_ptr(fclearColor));
+}
+void Renderer::RenderMeshes() const {
 	m_meshProgram->Use();
 	uint32_t currentVao = 0;
-	for (auto& batch : batches) {
-		auto vao = batch.mesh->GetVAO();
+	for (auto& batch : m_renderableMeshes.batches) {
+		const auto vao = batch.mesh->GetVAO();
 		if (currentVao != vao) {
 			glBindVertexArray(vao);
 			currentVao = vao;
 		}
 		m_modelUniform.Bind(batch.instanceOffset * sizeof(glm::mat4), m_matricesPerUniformBuffer * sizeof(glm::mat4));
-		if (showWireframe) glDrawArraysInstanced(GL_LINE_STRIP, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
+		if (m_showWireframe) glDrawArraysInstanced(GL_LINE_STRIP, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
 		else glDrawArraysInstanced(GL_TRIANGLES, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
 	}
-
-	// debug draw
+}
+void Renderer::RenderDebug(const std::shared_ptr<Scene>& scene) const {
 	if (DebugDraw::IsEnabled()) {
 		m_debugProgram->Use();
 		DebugDraw::GetDrawer()->setDebugMode(btIDebugDraw::DBG_DrawWireframe | btIDebugDraw::DBG_DrawContactPoints);
@@ -473,8 +495,11 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 		scene->GetPhysicsWorld().dynamicsWorld->debugDrawWorld();
 		DebugDraw::Draw();
 	}
+}
+void Renderer::RenderText(const std::shared_ptr<Scene>& scene) {
+	auto& camera = scene->GetCamera();
+	const glm::mat4 camProjView = camera->GetProjectionMatrix() * camera->GetViewMatrix();
 
-	// text
 	// group scene texts
 	std::unordered_map<std::string, std::vector<std::shared_ptr<DrawableText>>> textMap;
 	auto& texts = scene->GetTexts();
@@ -491,7 +516,7 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	}
 	// group texts on rigid bodies
 	for (auto&& [entity, textComp, rbComp] : scene->registry.view<TextComponent, RigidBodyComponent>().each()) {
-		auto body = rbComp.body;
+		const auto body = rbComp.body;
 		if (!body) continue;
 		for (const auto& text : textComp.texts) {
 			// get model matrix
@@ -530,7 +555,7 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	m_textProgram->Use();
 	for (auto& [fontName, textArray] : textMap) {
 		// set font texture
-		auto fontTexture = textArray[0]->GetFontTexture();
+		const auto fontTexture = textArray[0]->GetFontTexture();
 		m_textProgram->SetTexture("tGlyphs", GL_TEXTURE_2D_ARRAY, 0, fontTexture);
 
 		// draw each text
@@ -562,11 +587,11 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	}
 	// 2d text
 	glDisable(GL_DEPTH_TEST);
-	glm::mat4 ortho = glm::ortho(0.0f, static_cast<float>(m_viewportWidth), 0.0f, static_cast<float>(m_viewportHeight));
+	const glm::mat4 ortho = glm::ortho(0.0f, static_cast<float>(m_viewportWidth), 0.0f, static_cast<float>(m_viewportHeight));
 	for (const auto& [fontName, textArray] : textMap) {
 		if (textArray.empty()) continue;
 		// set font texture
-		auto fontTexture = textArray[0]->GetFontTexture();
+		const auto fontTexture = textArray[0]->GetFontTexture();
 		m_textProgram->SetTexture("tGlyphs", GL_TEXTURE_2D_ARRAY, 0, fontTexture);
 
 		// draw each text
@@ -592,23 +617,12 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	}
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
-
-	// lighting
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+void Renderer::RenderLighting() const {
 	m_lightingProgram->Use();
 	m_lightingProgram->SetTexture("tDepth", GL_TEXTURE_2D, 0, m_gbuffer.GetDepthTexture());
 	m_lightingProgram->SetTexture("tMaterial", GL_TEXTURE_2D, 1, m_gbuffer.GetMaterialTexture());
 	m_lightingProgram->SetTexture("tNormal", GL_TEXTURE_2D, 2, m_gbuffer.GetNormalTexture());
 	m_lightingProgram->SetTexture("tShadow", GL_TEXTURE_2D_ARRAY, 3, m_csmbuffer.GetDepthTextureArray());
 	glDrawArrays(GL_TRIANGLES, 0, 3);
-
-	// imgui
-	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-}
-
-void Renderer::SetViewportSize(int32_t width, int32_t height) {
-	if (m_viewportWidth == width && m_viewportHeight == height) return;
-	m_viewportWidth = width;
-	m_viewportHeight = height;
-	m_gbuffer.Resize(width, height);
 }

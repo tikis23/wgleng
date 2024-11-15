@@ -2,7 +2,6 @@
 
 #include <ft2build.h>
 #include <glm/glm.hpp>
-#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -66,7 +65,8 @@ public:
 	// if true, use transform matrix for rendering. Pos, rot, and scale may still be used as local transforms.
 	// if false, use pos, rot, and scale for rendering. Transform matrix will be ignored.
 	bool useTransform = false;
-	glm::mat4 transform{ 1 };
+	glm::mat4 transform{1};
+
 private:
 	friend class Text;
 	DrawableText(const std::shared_ptr<Text::fontData_t>& fontDataPtr, std::string_view text, float wrap);
