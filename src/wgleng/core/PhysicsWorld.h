@@ -3,9 +3,9 @@
 #include <btBulletDynamicsCommon.h>
 #include <glm/glm.hpp>
 #include <glm/gtx/hash.hpp>
-#include <memory>
 #include <unordered_map>
 
+#include "../util/Timer.h"
 #include "entt/entt.hpp"
 #include "glm/gtx/norm.hpp"
 
@@ -67,9 +67,12 @@ public:
 		}
 		return result;
 	}
+
+	void Update(TimeDuration dt) const;
+
 	// clears out any shapes that are no longer being used.
 	// does not need to be called every frame. can be called every couple of seconds or so.
-	void Update();
+	void CollectGarbageMemory();
 
 	void CheckObjectsTouchingGround() const;
 

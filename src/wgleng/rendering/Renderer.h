@@ -106,15 +106,20 @@ private:
 	UniformBuffer<TextUniform> m_textUniform;
 
 	// render steps
-	std::size_t m_materialCount{0};
-	void UpdateUniforms(const std::shared_ptr<Scene>& scene);
-
+	uint64_t m_totalDrawnTriangleCount{0};
+	uint64_t m_totalDrawnEntityCount{0};
 	struct RenderableState {
-		std::vector<MeshBatch> batches;
-	} m_renderableMeshes;
-	void UpdateRenderableMeshes(const std::shared_ptr<Scene>& scene);
-	void RenderShadowMaps() const;
-	void RenderMeshes() const;
+		std::vector<glm::mat4> matricesToUpload;
+		std::vector<MeshBatch> worldBatch;
+		std::vector<std::vector<MeshBatch>> csmBatches;
+	} m_renderableMeshesState;
+	void UpdateRenderableMeshes(const std::shared_ptr<Scene>& scene, const std::vector<glm::mat4>& csmMatrices);
+
+	std::size_t m_materialCount{0};
+	void UpdateUniforms(const std::shared_ptr<Scene>& scene, const std::vector<glm::mat4>& csmMatrices);
+
+	void RenderShadowMaps();
+	void RenderMeshes();
 	void RenderDebug(const std::shared_ptr<Scene>& scene) const;
 	void RenderText(const std::shared_ptr<Scene>& scene);
 	void RenderLighting() const;

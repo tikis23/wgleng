@@ -2,10 +2,8 @@
 
 #include <emscripten/fetch.h>
 #include <glm/gtx/euler_angles.hpp>
-#include <sstream>
 
 #include "../core/Components.h"
-#include "../core/EntityCreator.h"
 #include "../rendering/Debug.h"
 #include "../rendering/Highlights.h"
 #include "../vendor/imgui/imgui.h"
@@ -37,7 +35,7 @@ void SceneBuilder::RecreateEntity(int32_t entityId, bool useMass, bool invisible
 	entt::entity& entity = m_savedStates[entityId].first;
 	const State& state = m_savedStates[entityId].second;
 	if (entity != entt::null) m_registry.destroy(entity);
-	entity = CreateDefaultEntity(m_registry);
+	entity = m_registry.create();
 
 	m_registry.emplace_or_replace<FlagComponent>(entity, FlagComponent{state.flags});
 

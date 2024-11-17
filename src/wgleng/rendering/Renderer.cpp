@@ -12,6 +12,7 @@
 #include "../vendor/imgui/imgui.h"
 #include "../vendor/imgui/imgui_impl_opengl3.h"
 #include "Debug.h"
+#include "FrustumCulling.h"
 #include "Highlights.h"
 #include "Text.h"
 
@@ -268,14 +269,18 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 		DebugDraw::Clear();
 		return;
 	}
+	auto& camera = scene->GetCamera();
+	if (!camera) return;
 
-	Metrics::MeasureDurationStart(Metric::UPDATE_UNIFORMS);
-	UpdateUniforms(scene);
-	Metrics::MeasureDurationStop(Metric::UPDATE_UNIFORMS, true);
+	const auto csmMatrices = m_csmbuffer.GetLightSpaceMatrices(camera, scene->sunlightDir);
 
 	Metrics::MeasureDurationStart(Metric::UPDATE_MESHES);
-	UpdateRenderableMeshes(scene);
+	UpdateRenderableMeshes(scene, csmMatrices);
 	Metrics::MeasureDurationStop(Metric::UPDATE_MESHES, true);
+
+	Metrics::MeasureDurationStart(Metric::UPDATE_UNIFORMS);
+	UpdateUniforms(scene, csmMatrices);
+	Metrics::MeasureDurationStop(Metric::UPDATE_UNIFORMS, true);
 
 	// setup for shadows
 	glViewport(0, 0, m_csmWidth, m_csmHeight);
@@ -301,6 +306,11 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	RenderMeshes();
 	Metrics::MeasureDurationStop(Metric::RENDER_MESHES, true);
 
+	Metrics::SetStaticMetric(Metric::TRIANGLES_TOTAL, m_totalDrawnTriangleCount);
+	Metrics::SetStaticMetric(Metric::DRAWN_ENTITES, m_totalDrawnEntityCount);
+	m_totalDrawnTriangleCount = 0;
+	m_totalDrawnEntityCount = 0;
+
 	RenderDebug(scene);
 
 	Metrics::MeasureDurationStart(Metric::RENDER_TEXT);
@@ -320,7 +330,129 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
-void Renderer::UpdateUniforms(const std::shared_ptr<Scene>& scene) {
+void Renderer::UpdateRenderableMeshes(const std::shared_ptr<Scene>& scene, const std::vector<glm::mat4>& csmMatrices) {
+	auto& reg = scene->registry;
+
+	// get matrices
+	std::unordered_map<Mesh, std::vector<glm::mat4>> meshMatrices;
+
+	reg.group<RigidBodyComponent, MeshComponent>().each(
+		[&](auto& rbComp, auto& meshComp) {
+			const auto body = rbComp.body;
+			if (!body || meshComp.hidden || meshComp.hiddenPersistent) {
+				meshComp.hidden = false;
+				meshComp.highlightId = 0;
+				return;
+			}
+
+			btTransform transform;
+			if (body->getMotionState()) body->getMotionState()->getWorldTransform(transform);
+			else transform = body->getWorldTransform();
+
+			transform.setOrigin(transform.getOrigin() + btVector3(meshComp.position.x, meshComp.position.y, meshComp.position.z));
+			glm::vec3 euler{};
+			transform.getRotation().getEulerZYX(euler.z, euler.y, euler.x);
+			glm::vec3 objPos = glm::vec3(transform.getOrigin().x(), transform.getOrigin().y(), transform.getOrigin().z());
+
+			glm::mat4 model = computeModelMatrix(
+				objPos - meshComp.position, meshComp.position,
+				euler, glm::radians(meshComp.rotation),
+				meshComp.scale);
+
+			// !!!! EXTRA DATA PACKED INTO MATRIX, REQUIRES RESETING IN SHADER !!!!
+			model[3][3] = meshComp.highlightId;
+			meshComp.highlightId = 0;
+
+			meshMatrices[meshComp.mesh].push_back(model);
+		});
+	reg.group<TransformComponent>(entt::get<MeshComponent>, entt::exclude<RigidBodyComponent>).each(
+		[&](auto& transformComp, auto& meshComp) {
+			if (meshComp.hidden || meshComp.hiddenPersistent) {
+				meshComp.hidden = false;
+				return;
+			}
+
+			glm::mat4 model = computeModelMatrix(
+				transformComp.position, meshComp.position,
+				glm::radians(transformComp.rotation), glm::radians(meshComp.rotation),
+				transformComp.scale * meshComp.scale);
+
+			// !!!! EXTRA DATA PACKED INTO MATRIX, REQUIRES RESETING IN SHADER !!!!
+			model[3][3] = meshComp.highlightId;
+			meshComp.highlightId = 0;
+
+			meshMatrices[meshComp.mesh].push_back(model);
+		});
+
+	// setup batching
+	std::vector<glm::mat4>& matricesToUpload = m_renderableMeshesState.matricesToUpload;
+	matricesToUpload.clear();
+	std::vector<std::vector<MeshBatch>*> batchesList;
+	batchesList.reserve(csmMatrices.size() + 1);
+	m_renderableMeshesState.worldBatch.clear();
+	batchesList.emplace_back(&m_renderableMeshesState.worldBatch);
+	m_renderableMeshesState.csmBatches.resize(csmMatrices.size());
+	for (auto& batch : m_renderableMeshesState.csmBatches) {
+		batch.clear();
+		batchesList.emplace_back(&batch);
+	}
+
+	// setup frustum culling
+	std::vector<FrustumCulling> frustums;
+	frustums.reserve(csmMatrices.size() + 1);
+	glm::mat4 projxview = scene->GetCamera()->GetProjectionMatrix() * scene->GetCamera()->GetViewMatrix();
+	frustums.emplace_back(projxview);
+	for (auto i = 0; i < csmMatrices.size(); i++) {
+		frustums.emplace_back(csmMatrices[i]);
+	}
+
+	// frustum cull and batch
+	uint32_t currentUboOffset = 0;
+	for (auto i = 0; i < frustums.size(); i++) {
+		auto& frustum = frustums[i];
+		auto& batches = *batchesList[i];
+		for (auto& [mesh, mats] : meshMatrices) {
+			MeshBatch batch;
+			batch.mesh = mesh;
+			batch.instanceOffset = currentUboOffset;
+			batch.instanceCount = 0;
+			const auto aabb = mesh->GetAabb();
+			for (auto& mat : mats) {
+				// frustum cull
+				auto fixedMat = mat;
+				fixedMat[3][3] = 0; // remove extra data
+				if (!frustum.IsAabbVisible(aabb.first, aabb.second, fixedMat)) continue;
+				matricesToUpload.push_back(mat);
+
+				// batch
+				batch.instanceCount++;
+				currentUboOffset++;
+				if (batch.instanceCount == m_matricesPerUniformBuffer) {
+					// fix ubo offset alignment
+					const auto alignment = m_modelUniform.GetOffsetAlignment();
+					const auto padding = alignment - (currentUboOffset * sizeof(glm::mat4) % alignment);
+					currentUboOffset += padding / sizeof(glm::mat4);
+					matricesToUpload.resize(currentUboOffset);
+
+					// save batch
+					batches.push_back(batch);
+					batch.instanceOffset = currentUboOffset;
+					batch.instanceCount = 0;
+				}
+			}
+			if (batch.instanceCount == 0) continue;
+			// fix ubo offset alignment
+			const auto alignment = m_modelUniform.GetOffsetAlignment();
+			const auto padding = alignment - (currentUboOffset * sizeof(glm::mat4) % alignment);
+			currentUboOffset += padding / sizeof(glm::mat4);
+			matricesToUpload.resize(currentUboOffset);
+
+			// save batch
+			batches.push_back(batch);
+		}
+	}
+}
+void Renderer::UpdateUniforms(const std::shared_ptr<Scene>& scene, const std::vector<glm::mat4>& csmMatrices) {
 	auto& camera = scene->GetCamera();
 	camera->Update(m_viewportWidth, m_viewportHeight);
 	const glm::mat4 camProjView = camera->GetProjectionMatrix() * camera->GetViewMatrix();
@@ -346,115 +478,22 @@ void Renderer::UpdateUniforms(const std::shared_ptr<Scene>& scene) {
 		m_materialCount = materialCount;
 	}
 
-	const auto lightSpaceMatrices = m_csmbuffer.GetLightSpaceMatrices(camera, scene->sunlightDir);
 	CSMUniform csmData;
-	std::ranges::copy(lightSpaceMatrices, csmData.lightSpaceMatrices);
+	std::ranges::copy(csmMatrices, csmData.lightSpaceMatrices);
 	m_csmUniform.Update(csmData);
-}
-void Renderer::UpdateRenderableMeshes(const std::shared_ptr<Scene>& scene) {
-	// get renderable meshes and matrices
-	uint32_t matrixCount = 0;
-	std::unordered_map<Mesh, std::vector<glm::mat4>> meshMatrices;
-	std::unordered_map<Mesh, std::vector<std::pair<glm::mat4, glm::vec3>>> meshHighlights;
-	for (auto&& [entity, meshComp, transformComp] :
-	     scene->registry.view<MeshComponent, TransformComponent>(entt::exclude<RigidBodyComponent>).each()) {
-		// check if hidden
-		if (meshComp.hidden || meshComp.hiddenPersistent) {
-			meshComp.hidden = false;
-			continue;
-		}
-
-		// get model matrix
-		glm::mat4 model = computeModelMatrix(
-			transformComp.position, meshComp.position,
-			glm::radians(transformComp.rotation), glm::radians(meshComp.rotation),
-			transformComp.scale * meshComp.scale);
-
-		// !!!! EXTRA DATA PACKED INTO MATRIX, REQUIRES RESETING IN SHADER !!!!
-		model[3][3] = meshComp.highlightId;
-		meshComp.highlightId = 0;
-
-		// add to map
-		meshMatrices[meshComp.mesh].push_back(model);
-		matrixCount++;
-	}
-	for (auto&& [entity, meshComp, rbComp] : scene->registry.view<MeshComponent, RigidBodyComponent>().each()) {
-		// check if hidden
-		if (meshComp.hidden || meshComp.hiddenPersistent) {
-			meshComp.hidden = false;
-			continue;
-		}
-
-		auto body = rbComp.body;
-		if (!body) continue;
-
-		// get model matrix
-		btTransform transform;
-		if (body->getMotionState()) body->getMotionState()->getWorldTransform(transform);
-		else transform = body->getWorldTransform();
-
-		transform.setOrigin(transform.getOrigin() + btVector3(meshComp.position.x, meshComp.position.y, meshComp.position.z));
-		glm::vec3 euler{};
-		transform.getRotation().getEulerZYX(euler.z, euler.y, euler.x);
-		glm::vec3 objPos = glm::vec3(transform.getOrigin().x(), transform.getOrigin().y(), transform.getOrigin().z());
-
-		glm::mat4 model = computeModelMatrix(
-			objPos - meshComp.position, meshComp.position,
-			euler, glm::radians(meshComp.rotation),
-			meshComp.scale);
-
-		// !!!! EXTRA DATA PACKED INTO MATRIX, REQUIRES RESETING IN SHADER !!!!
-		model[3][3] = meshComp.highlightId;
-		meshComp.highlightId = 0;
-
-		// add to map
-		meshMatrices[meshComp.mesh].push_back(model);
-		matrixCount++;
-	}
-
-	// batch matrices and get render data
-	std::vector<glm::mat4> batchedMatrices; // TODO: possible to avoid copying matrices into this single vector, but more complex
-	batchedMatrices.reserve(matrixCount);
-	std::vector<MeshBatch> batches;
-	uint32_t currentUboOffset = 0;
-	uint32_t currentBatchSize = 0;
-	for (auto& [mesh, models] : meshMatrices) {
-		uint32_t matricesLeft = models.size();
-		while (matricesLeft > 0) {
-			const uint32_t matricesInThisBatch = std::min(matricesLeft, m_matricesPerUniformBuffer - currentBatchSize);
-			auto matricesOffset = models.begin() + (models.size() - matricesLeft);
-			if (currentUboOffset >= batchedMatrices.size()) {
-				batchedMatrices.resize(currentUboOffset + m_matricesPerUniformBuffer);
-			}
-			batchedMatrices.insert(batchedMatrices.begin() + currentUboOffset, matricesOffset, matricesOffset + matricesInThisBatch);
-			matricesLeft -= matricesInThisBatch;
-			currentBatchSize = (currentBatchSize + matricesInThisBatch) % m_matricesPerUniformBuffer;
-
-			MeshBatch batchData;
-			batchData.mesh = mesh;
-			batchData.instanceOffset = currentUboOffset;
-			batchData.instanceCount = matricesInThisBatch;
-			batches.push_back(batchData);
-
-			currentUboOffset += matricesInThisBatch;
-			// fix for alignment
-			int padding = (currentUboOffset * sizeof(glm::mat4)) % m_modelUniform.GetOffsetAlignment();
-			padding = m_modelUniform.GetOffsetAlignment() - padding;
-			currentUboOffset += padding / sizeof(glm::mat4);
-			currentBatchSize += padding / sizeof(glm::mat4);
-		}
-	}
-	m_renderableMeshes.batches = std::move(batches);
 
 	// resize ubo if needed
-	const uint32_t requiredSize = matrixCount * sizeof(glm::mat4) + sizeof(glm::mat4) * m_matricesPerUniformBuffer;
+	const auto& mats = m_renderableMeshesState.matricesToUpload;
+	const uint32_t requiredSize = (mats.size() + m_matricesPerUniformBuffer) * sizeof(glm::mat4);
 	if (m_modelUniform.GetSize() < requiredSize) {
 		m_modelUniform.Resize(requiredSize + sizeof(glm::mat4) * m_matricesPerUniformBuffer);
 	}
 	// upload matrices
-	m_modelUniform.Update(0, batchedMatrices.size() * sizeof(glm::mat4), batchedMatrices.data());
+	m_modelUniform.Update(0, mats.size() * sizeof(glm::mat4), mats.data());
 }
-void Renderer::RenderShadowMaps() const {
+void Renderer::RenderShadowMaps() {
+	uint64_t vertexCount = 0;
+	uint64_t entityCount = 0;
 	for (int i = 0; i < m_csmbuffer.GetFBOs().size(); i++) {
 		const auto& csmProgram = m_csmPrograms[i];
 		csmProgram->Use();
@@ -462,7 +501,7 @@ void Renderer::RenderShadowMaps() const {
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 		glClear(GL_DEPTH_BUFFER_BIT);
 		uint32_t currentVao = 0;
-		for (const auto& batch : m_renderableMeshes.batches) {
+		for (const auto& batch : m_renderableMeshesState.csmBatches[i]) {
 			const auto vao = batch.mesh->GetVAO();
 			if (currentVao != vao) {
 				glBindVertexArray(vao);
@@ -470,13 +509,22 @@ void Renderer::RenderShadowMaps() const {
 			}
 			m_modelUniform.Bind(batch.instanceOffset * sizeof(glm::mat4), m_matricesPerUniformBuffer * sizeof(glm::mat4));
 			glDrawArraysInstanced(GL_TRIANGLES, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
+			vertexCount += batch.instanceCount * batch.mesh->GetDrawCount();
+			entityCount += batch.instanceCount;
 		}
 	}
+	uint64_t triCount = vertexCount / 3;
+	m_totalDrawnTriangleCount += triCount;
+	Metrics::SetStaticMetric(Metric::TRIANGLES_SHADOW, triCount);
+	m_totalDrawnEntityCount += entityCount;
+	Metrics::SetStaticMetric(Metric::SHADOW_ENTITES, entityCount);
 }
-void Renderer::RenderMeshes() const {
+void Renderer::RenderMeshes() {
+	uint64_t vertexCount = 0;
+	uint64_t entityCount = 0;
 	m_meshProgram->Use();
 	uint32_t currentVao = 0;
-	for (auto& batch : m_renderableMeshes.batches) {
+	for (const auto& batch : m_renderableMeshesState.worldBatch) {
 		const auto vao = batch.mesh->GetVAO();
 		if (currentVao != vao) {
 			glBindVertexArray(vao);
@@ -485,7 +533,14 @@ void Renderer::RenderMeshes() const {
 		m_modelUniform.Bind(batch.instanceOffset * sizeof(glm::mat4), m_matricesPerUniformBuffer * sizeof(glm::mat4));
 		if (m_showWireframe) glDrawArraysInstanced(GL_LINE_STRIP, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
 		else glDrawArraysInstanced(GL_TRIANGLES, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
+		vertexCount += batch.instanceCount * batch.mesh->GetDrawCount();
+		entityCount += batch.instanceCount;
 	}
+	uint64_t triCount = vertexCount / 3;
+	m_totalDrawnTriangleCount += triCount;
+	Metrics::SetStaticMetric(Metric::TRIANGLES_MESHES, triCount);
+	m_totalDrawnEntityCount += entityCount;
+	Metrics::SetStaticMetric(Metric::MESH_ENTITES, entityCount);
 }
 void Renderer::RenderDebug(const std::shared_ptr<Scene>& scene) const {
 	if (DebugDraw::IsEnabled()) {

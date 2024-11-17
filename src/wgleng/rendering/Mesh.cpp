@@ -13,7 +13,7 @@ MeshImpl::~MeshImpl() {
     glDeleteVertexArrays(1, &m_vao);
 }
 
-void MeshImpl::Load(std::size_t vertexCount, const Vertex* vertices, std::size_t materialCount, const Material* materials, const glm::mat4& model) {
+void MeshImpl::Load(std::size_t vertexCount, const Vertex* vertices, std::size_t materialCount, const Material* materials, bool createAabb, const glm::mat4& model) {
     // materials
     std::vector<uint32_t> mappedMaterials(materialCount);
     for (std::size_t i = 0; i < materialCount; i++) {
@@ -48,6 +48,16 @@ void MeshImpl::Load(std::size_t vertexCount, const Vertex* vertices, std::size_t
             verts[i].materialId = mappedMaterials[vertices[i].materialId];
         }
     }
+
+    // aabb
+	if (createAabb) {
+		m_aabbMin = glm::vec3(FLT_MAX);
+		m_aabbMax = glm::vec3(-FLT_MAX);
+		for (const auto& vert : verts) {
+			m_aabbMin = glm::min(m_aabbMin, vert.position);
+			m_aabbMax = glm::max(m_aabbMax, vert.position);
+		}
+	}
 
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * verts.size(), verts.data(), GL_STATIC_DRAW);

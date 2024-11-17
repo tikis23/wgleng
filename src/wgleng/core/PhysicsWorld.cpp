@@ -59,10 +59,16 @@ void clearExpiredObjects(std::unordered_map<T, std::weak_ptr<btCollisionShape>>&
 	for (auto& obj : objectsToRemove) map.erase(obj);
 }
 
-void PhysicsWorld::Update() {
+void PhysicsWorld::CollectGarbageMemory() {
 	clearExpiredObjects(m_boxShapes);
 	clearExpiredObjects(m_sphereShapes);
 	clearExpiredObjects(m_capsuleShapes);
+}
+
+void PhysicsWorld::Update(TimeDuration dt) const {
+	// using dt in fixed_step makes physics have the same speed at low fps, but makes it unstable
+	dynamicsWorld->stepSimulation(1, 1, static_cast<float>(dt.fSec()) * 2.0f);
+	CheckObjectsTouchingGround();
 }
 
 void PhysicsWorld::SetTransform(btTransform& transform, const glm::vec3& position, const glm::vec3& rotation) {
@@ -163,7 +169,7 @@ std::vector<PhysicsWorld::RaycastData> PhysicsWorld::RaycastWorld(const glm::vec
 		result.emplace_back(userData->entity, hitPoint, hitNormal);
 	}
 	if (sortByDist) {
-		std::sort(result.begin(), result.end(), [&from](const RaycastData& a, const RaycastData& b) {
+		std::ranges::sort(result, [&from](const RaycastData& a, const RaycastData& b) {
 			return glm::distance2(from, a.hitPoint) < glm::distance2(from, b.hitPoint);
 		});
 	}

@@ -45,6 +45,7 @@ private:
 	std::vector<std::weak_ptr<DrawableText>> m_drawableTexts;
 
 private:
+	static void OnConstructEntity(entt::registry& reg, entt::entity entity);
 	static void OnDestroyRigidBody(entt::registry& reg, entt::entity entity);
 	static void OnConstructRigidBody(entt::registry& reg, entt::entity entity);
 };
