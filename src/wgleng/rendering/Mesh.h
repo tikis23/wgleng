@@ -5,6 +5,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <span>
 
 #include "Vertex.h"
 
@@ -18,8 +19,8 @@ public:
 	MeshImpl(const MeshImpl&) = delete;
 	MeshImpl& operator=(const MeshImpl&) = delete;
 
-	void Load(std::size_t vertexCount, const Vertex* vertices, std::size_t materialCount,
-		const Material* materials, bool createAabb = true, const glm::mat4& model = glm::mat4(1));
+	void Load(std::span<const Vertex> vertices, std::span<const Material> materials,
+		std::span<const uint32_t> indices, bool createAabb = true, bool wireframe = false);
 
 	// returns {aabb_min, aabb_max} if createAabb was true, otherwise {0, 0}
 	std::pair<glm::vec3, glm::vec3> GetAabb() const { return { m_aabbMin, m_aabbMax }; }
@@ -33,6 +34,7 @@ private:
 	std::string m_name;
 	GLuint m_vao;
 	GLuint m_vbo;
+	GLuint m_ebo;
 	std::size_t m_drawCount;
 	glm::vec3 m_aabbMin{0};
 	glm::vec3 m_aabbMax{0};

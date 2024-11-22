@@ -508,7 +508,7 @@ void Renderer::RenderShadowMaps() {
 				currentVao = vao;
 			}
 			m_modelUniform.Bind(batch.instanceOffset * sizeof(glm::mat4), m_matricesPerUniformBuffer * sizeof(glm::mat4));
-			glDrawArraysInstanced(GL_TRIANGLES, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
+			glDrawElementsInstanced(GL_TRIANGLES, batch.mesh->GetDrawCount(), GL_UNSIGNED_INT, nullptr, batch.instanceCount);
 			vertexCount += batch.instanceCount * batch.mesh->GetDrawCount();
 			entityCount += batch.instanceCount;
 		}
@@ -522,6 +522,7 @@ void Renderer::RenderShadowMaps() {
 void Renderer::RenderMeshes() {
 	uint64_t vertexCount = 0;
 	uint64_t entityCount = 0;
+	const int drawType = m_showWireframe ? GL_LINES : GL_TRIANGLES;
 	m_meshProgram->Use();
 	uint32_t currentVao = 0;
 	for (const auto& batch : m_renderableMeshesState.worldBatch) {
@@ -531,8 +532,7 @@ void Renderer::RenderMeshes() {
 			currentVao = vao;
 		}
 		m_modelUniform.Bind(batch.instanceOffset * sizeof(glm::mat4), m_matricesPerUniformBuffer * sizeof(glm::mat4));
-		if (m_showWireframe) glDrawArraysInstanced(GL_LINE_STRIP, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
-		else glDrawArraysInstanced(GL_TRIANGLES, 0, batch.mesh->GetDrawCount(), batch.instanceCount);
+		glDrawElementsInstanced(drawType, batch.mesh->GetDrawCount(), GL_UNSIGNED_INT, nullptr, batch.instanceCount);
 		vertexCount += batch.instanceCount * batch.mesh->GetDrawCount();
 		entityCount += batch.instanceCount;
 	}
