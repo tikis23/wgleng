@@ -1,6 +1,7 @@
 #include "Renderer.h"
 
 #include <emscripten/fetch.h>
+#include <emscripten/html5_webgl.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_map>
@@ -20,6 +21,8 @@ Renderer::Renderer()
 	: m_viewportWidth{1}, m_viewportHeight{1}, m_csmWidth{1024}, m_csmHeight{1024},
 	  m_gbuffer(m_viewportWidth, m_viewportHeight),
 	  m_csmbuffer(m_csmWidth, m_csmHeight, {100, 500, 1000}) {
+	CheckExtensionSupport();
+
 	ReloadShaders();
 
 	// GL settings
@@ -219,6 +222,10 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 	SetupUniforms();
     #endif
 }
+void Renderer::CheckExtensionSupport() {
+	//auto exts = emscripten_webgl_get_supported_extensions();
+	//printf("%s\n", exts);
+}
 void Renderer::SetupUniforms() {
 	// setup uniforms
 	m_nextUniformBindingIndex = 0;
@@ -265,12 +272,12 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 		ReloadShaders(ShaderType::LIGHTING);
 	}
 
-	if (isHidden || m_shadersLoading || !scene) {
+	if (isHidden || m_shadersLoading || !scene || !scene->GetCamera()) {
 		DebugDraw::Clear();
+		ImGui::Render();
 		return;
 	}
 	auto& camera = scene->GetCamera();
-	if (!camera) return;
 
 	const auto csmMatrices = m_csmbuffer.GetLightSpaceMatrices(camera, scene->sunlightDir);
 
@@ -285,6 +292,7 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	// setup for shadows
 	glViewport(0, 0, m_csmWidth, m_csmHeight);
 	glCullFace(GL_FRONT);
+	
 
 	Metrics::MeasureDurationStart(Metric::RENDER_SHADOWS);
 	RenderShadowMaps();

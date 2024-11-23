@@ -2,6 +2,10 @@ R"(#version 300 es
 precision mediump float;
 out vec4 gColor;
 
+#define OUTLINE 1
+#define SHADOWS 1
+#define SHADOW_PCF 1
+
 uniform sampler2D tDepth;
 uniform mediump usampler2D tMaterial;
 uniform sampler2D tNormal;
@@ -65,19 +69,22 @@ void main() {
     vec3 color = materials[materialId].diffuse.rgb * sunlightColor.rgb * lightStrength;
 
     // add shadow
+#if SHADOWS
     float shadow = getShadow(position, normal, lDepth);
     shadow = 1.0 - shadow * 0.8;
     color *= shadow;
+#endif
 
     // add outline
+#if OUTLINE
     vec3 outlineColor = highlightColor;
     float outline = getOutline(normal, lDepth);
     color = mix(color, outlineColor, outline);
+#endif
 
     float selfDot = dot(normal, normal);
     if (selfDot == 0.0) { // fill background color
         color = backgroundColor;
-    // } else if (materialId == 0U && highlightId != 0U) { // if material is 0, show highlight only
     } else if (selfDot < 0.1) { // if material is 0, show highlight only
         color = highlightColor;
         highlightColor = vec3(0.0);
@@ -87,7 +94,7 @@ void main() {
     float gamma = 2.2;
     color = pow(color, vec3(1.0 / gamma));
 
-    gColor = vec4(color + highlightColor * 0.5, 1.0f);
+    gColor = vec4(color + highlightColor * 0.5, 1.0);
 
     // show cursor
     vec2 cursorLoc = gl_FragCoord.xy - viewportSize_nearFarPlane.xy * 0.5;
@@ -134,31 +141,34 @@ float getShadow(vec3 fragPosWorldSpace, vec3 normal, float lDepth) {
         }
     }
 
+
     // get frag pos in light space
     vec4 fragPosLightSpace = lightSpaceMatrices[layer] * vec4(fragPosWorldSpace, 1.0);
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     // transform to [0,1] range
     projCoords = projCoords * 0.5 + 0.5;
     float fragDepth = projCoords.z;
-    if (fragDepth > 1.0) return 0.0;
+    if (fragDepth > 0.999) return 0.0;
 
-
-    float bias;
-    bias = max(0.05 * (1.0 - dot(normal, sunlightDir)), 0.005);
-    bias *= 1.0 / (cascadeSplits[layer] * 4.);
-
+    float lightDirBias = dot(normal, sunlightDir);
+    float bias = max(lightDirBias * -100.0, 0.04 / cascadeSplits[layer]);
+#if SHADOW_PCF == 0
+    float depth = texture(tShadow, vec3(projCoords.xy, layer)).r;
+    return (fragDepth + bias) > depth ? 1.0 : 0.0;
+#else
     // PCF
+    bias -= cascadeSplits[layer] * 0.00000025;
     float shadow = 0.0;
-    vec2 texelSize = 1.0 / vec2(textureSize(tShadow, 0));
+    vec2 texelSize = 0.8 / vec2(textureSize(tShadow, 0));
     for(int x = -1; x <= 1; x++) {
         for(int y = -1; y <= 1; y++) {
-            float pcfDepth = texture(tShadow, vec3(projCoords.xy + vec2(x, y) * texelSize, layer)).r; 
-            shadow += (fragDepth + bias) > pcfDepth ? 1.0 : 0.0;        
-        }    
+            float pcfDepth = texture(tShadow, vec3(projCoords.xy + vec2(x, y) * texelSize, layer)).r;
+            shadow += (fragDepth + bias) > pcfDepth ? 1.0 : 0.0;      
+        }
     }
     shadow /= 9.0;
-
     return shadow;
+#endif
 }
 
 float sobel(mat3 vars) {

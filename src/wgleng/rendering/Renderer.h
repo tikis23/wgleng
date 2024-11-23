@@ -37,6 +37,8 @@ public:
 	bool IsWireframeShown() const { return m_showWireframe; }
 
 private:
+	void CheckExtensionSupport();
+
 	// options
 	bool m_showWireframe = false;
 	int32_t m_viewportWidth, m_viewportHeight;
