@@ -119,6 +119,7 @@ void SceneBuilder::FlagSelector() {
 		{"INTERACTABLE", EntityFlags::INTERACTABLE},
 		{"DISABLE_COLLISIONS", EntityFlags::DISABLE_COLLISIONS},
 		{"DISABLE_GRAVITY", EntityFlags::DISABLE_GRAVITY},
+		{"OCCLUDER", EntityFlags::OCCLUDER}
 	};
 	if (ImGui::BeginChild("Entity flags", ImVec2(0, 0), ImGuiChildFlags_Border | ImGuiChildFlags_AlwaysAutoResize |
 		ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY)) {
@@ -392,7 +393,8 @@ void SceneBuilder::Update() {
 
 void SceneBuilder::Reset() {
 	for (auto&& [entity, state] : m_savedStates) {
-		m_registry.destroy(entity);
+		if (m_registry.valid(entity))
+			m_registry.destroy(entity);
 	}
 	m_selectedEntities.clear();
 	m_savedStates.clear();

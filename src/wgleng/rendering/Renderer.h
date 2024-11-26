@@ -5,10 +5,28 @@
 
 #include "../core/Scene.h"
 #include "CSMBuffer.h"
+#include "FXAABuffer.h"
 #include "GBuffer.h"
 #include "Mesh.h"
 #include "ShaderProgram.h"
 #include "UniformBuffer.h"
+
+struct RendererSettings {
+	struct ResolutionSettings {
+		bool automatic = true;
+		int32_t width = 1920;
+		int32_t height = 1080;
+	} resolution{};
+	enum class FXAAPreset {
+		OFF, LOW, HIGH
+	} fxaa = FXAAPreset::HIGH;
+	enum class ShadowPreset {
+		OFF, LOW, MEDIUM, HIGH
+	} shadows = ShadowPreset::MEDIUM;
+	enum class OutlinePreset {
+		OFF, ON
+	} outlines = OutlinePreset::ON;
+}; 
 
 class Renderer {
 public:
@@ -24,13 +42,19 @@ public:
 	void Render(bool isHidden, const std::shared_ptr<Scene>& scene);
 
 	enum class ShaderType : uint64_t {
+		_entt_enum_as_bitmask,
+		NONE      = 0,
 		ALL      = ~0U,
 		DEBUG    = 1U << 0,
 		MESH     = 1U << 1,
 		LIGHTING = 1U << 2,
 		CSM      = 1U << 3,
-		TEXT     = 1U << 4
+		TEXT     = 1U << 4,
+		FXAA     = 1U << 5,
 	};
+
+	RendererSettings GetSettings() const { return m_settings; }
+	void SetSettings(const RendererSettings& settings, bool force);
 
 	void ReloadShaders(ShaderType shaders = ShaderType::ALL);
 	void ShowWireframe(bool show) { m_showWireframe = show; }
@@ -38,11 +62,19 @@ public:
 
 private:
 	void CheckExtensionSupport();
+	void SetFramebuffer(uint32_t framebuffer);
+	uint32_t m_currentFramebuffer = 0;
+	void SetRenderSize(uint32_t x, uint32_t y);
+	uint32_t m_currentRenderSizeX = 0, m_currentRenderSizeY = 0;
+	void SetFaceCullingFront();
+	void SetFaceCullingBack();
+	bool m_faceCullingFront = false;
+private:
 
 	// options
+	RendererSettings m_settings{};
 	bool m_showWireframe = false;
 	int32_t m_viewportWidth, m_viewportHeight;
-	int32_t m_csmWidth, m_csmHeight;
 
 	constexpr static inline uint32_t m_matricesPerUniformBuffer = 256;
 	constexpr static inline uint32_t m_maxCSMFrustums = 4;
@@ -51,6 +83,7 @@ private:
 	// buffers
 	GBuffer m_gbuffer;
 	CSMBuffer m_csmbuffer;
+	FXAABuffer m_fxaabuffer;
 
 	// shaders
 	void LoadShaderFromFile(const std::string& file);
@@ -64,6 +97,7 @@ private:
 	std::unique_ptr<ShaderProgram> m_meshProgram;
 	std::unique_ptr<ShaderProgram> m_lightingProgram;
 	std::unique_ptr<ShaderProgram> m_textProgram;
+	std::unique_ptr<ShaderProgram> m_fxaaProgram;
 	std::vector<std::unique_ptr<ShaderProgram>> m_csmPrograms;
 
 	// uniforms
@@ -125,4 +159,5 @@ private:
 	void RenderDebug(const std::shared_ptr<Scene>& scene) const;
 	void RenderText(const std::shared_ptr<Scene>& scene);
 	void RenderLighting() const;
+	void RenderFXAA() const;
 };

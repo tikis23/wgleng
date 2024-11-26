@@ -17,15 +17,15 @@ public:
     void SetConstant(std::string_view name, std::string_view value);
     void Load(const GLchar* vertexSource, const GLchar* fragmentSource);
 
-    void Use();
+    void Use() const;
     GLuint GetId() const { return m_program; }
 
-    void AddUniformBufferBinding(std::string_view name, GLuint bindingIndex);
+    void AddUniformBufferBinding(std::string_view name, GLuint bindingIndex) const;
 
     void SetTexture(std::string_view name, GLenum target, GLuint index, GLuint texture);
 
 private:
-    void CheckCompileErrors(const unsigned int shader, const int type);
+    bool CheckCompileErrors(const unsigned int shader, const int type) const;
     void CreateShader(GLuint program, const GLchar *source, GLenum type);
     GLuint m_program{0};
     std::string m_shaderName;

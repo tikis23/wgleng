@@ -12,5 +12,6 @@ namespace EntityFlags {
 		DISABLE_COLLISIONS = 1 << 2,
 		// If you change this after the body was created, you need to update the body manually too
 		DISABLE_GRAVITY    = 1 << 3,
+		OCCLUDER           = 1 << 4,
 	};
 }

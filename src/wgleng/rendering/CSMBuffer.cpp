@@ -31,6 +31,13 @@ void CSMBuffer::Resize(uint32_t width, uint32_t height) {
 	Destroy();
 	Create();
 }
+void CSMBuffer::ResizeAndSetCascades(uint32_t width, uint32_t height, const std::vector<float>& cascadeSplits) {
+	m_width = width;
+	m_height = height;
+	m_cascadeSplits = cascadeSplits;
+	Destroy();
+	Create();
+}
 
 std::vector<glm::vec4> GetFrustumCornersWorldSpace(const glm::mat4& proj, const glm::mat4& view) {
 	const glm::mat4 invProjView = glm::inverse(proj * view);
@@ -107,13 +114,7 @@ std::vector<glm::mat4> CSMBuffer::GetLightSpaceMatrices(const std::shared_ptr<Ca
 			minZ = std::min(minZ, trf.z);
 		}
 
-		// adjust to make nicer/worse shadows
-		float zMult = 1.f;
-		if (minZ < 0) minZ *= zMult;
-		else minZ /= zMult;
-		zMult = 10.f;
-		if (maxZ < 0) maxZ /= zMult;
-		else maxZ *= zMult;
+		maxZ *= 10.f;
 
 		const glm::mat4 lightProjection = glm::ortho(minX, maxX, minY, maxY, -maxZ, -minZ);
 		lightSpaceMatrices[i] = lightProjection * lightView;

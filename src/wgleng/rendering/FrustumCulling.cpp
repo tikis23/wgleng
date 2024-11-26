@@ -1,13 +1,15 @@
 #include "FrustumCulling.h"
 
-FrustumCulling::FrustumCulling(const glm::mat4& projxview) {
+FrustumCulling::FrustumCulling(const glm::mat4& projxview, Plane ignoredPlanes) {
 	const glm::mat4 mat = glm::transpose(projxview);
-	m_planes[0] = mat[3] + mat[0]; // left
-	m_planes[1] = mat[3] - mat[0]; // right
-	m_planes[2] = mat[3] + mat[1]; // bottom
-	m_planes[3] = mat[3] - mat[1]; // top
-	m_planes[4] = mat[3] + mat[2]; // near
-	m_planes[5] = mat[3] - mat[2]; // far
+	m_planes.reserve(6);
+	const auto ip = static_cast<std::underlying_type_t<Plane>>(ignoredPlanes);
+	if (!(ip & static_cast<std::underlying_type_t<Plane>>(Plane::Left))) m_planes.push_back(mat[3] + mat[0]);
+	if (!(ip & static_cast<std::underlying_type_t<Plane>>(Plane::Right))) m_planes.push_back(mat[3] - mat[0]);
+	if (!(ip & static_cast<std::underlying_type_t<Plane>>(Plane::Bottom))) m_planes.push_back(mat[3] + mat[1]);
+	if (!(ip & static_cast<std::underlying_type_t<Plane>>(Plane::Top))) m_planes.push_back(mat[3] - mat[1]);
+	if (!(ip & static_cast<std::underlying_type_t<Plane>>(Plane::Near))) m_planes.push_back(mat[3] + mat[2]);
+	if (!(ip & static_cast<std::underlying_type_t<Plane>>(Plane::Far))) m_planes.push_back(mat[3] - mat[2]);
 }
 
 bool FrustumCulling::IsAabbVisible(const glm::vec3& aabbMin, const glm::vec3& aabbMax) const {

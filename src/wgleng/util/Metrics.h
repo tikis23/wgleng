@@ -18,16 +18,17 @@ enum class Metric : uint32_t {
 	RENDER_MESHES   = 1 << 8,
 	RENDER_TEXT     = 1 << 9,
 	RENDER_LIGHTING = 1 << 10,
+	RENDER_FXAA     = 1 << 11,
 	//===========================//
-	ENTITY_COUNT     = 1 << 11,
-	DRAWN_ENTITES    = 1 << 12,
-	SHADOW_ENTITES   = 1 << 13,
-	MESH_ENTITES     = 1 << 14,
-	TRIANGLES_TOTAL  = 1 << 15,
-	TRIANGLES_SHADOW = 1 << 16,
-	TRIANGLES_MESHES = 1 << 17,
+	ENTITY_COUNT     = 1 << 12,
+	DRAWN_ENTITES    = 1 << 13,
+	SHADOW_ENTITES   = 1 << 14,
+	MESH_ENTITES     = 1 << 15,
+	TRIANGLES_TOTAL  = 1 << 16,
+	TRIANGLES_SHADOW = 1 << 17,
+	TRIANGLES_MESHES = 1 << 18,
 	//===========================//
-	METRIC_COUNT = 18,
+	METRIC_COUNT = 19,
 	ALL_METRICS  = (1 << METRIC_COUNT) - 1,
 };
 
@@ -46,6 +47,7 @@ private:
 		"   (gpu) Render meshes   ",
 		"   (gpu) Render text     ",
 		"   (gpu) Render lighting ",
+		"   (gpu) Render fxaa     ",
 		//===========================//
 		"(info) entity count  ",
 		"(info) drawn entites ",

@@ -2,7 +2,7 @@
 
 #include <stdio.h>
 
-void ShaderProgram::CheckCompileErrors(const unsigned int shader, const int type) {
+bool ShaderProgram::CheckCompileErrors(const unsigned int shader, const int type) const {
     int success;
     char infoLog[1024];
     if (type == 1) {
@@ -10,14 +10,17 @@ void ShaderProgram::CheckCompileErrors(const unsigned int shader, const int type
         if (!success) {
             glGetShaderInfoLog(shader, 1024, nullptr, infoLog);
             printf("ERROR: SHADER_COMPILATION_ERROR in '%s':\n%s\n", m_shaderName.c_str(), infoLog);
+            return false;
         }
     } else {
         glGetProgramiv(shader, GL_LINK_STATUS, &success);
         if (!success) {
             glGetProgramInfoLog(shader, 1024, nullptr, infoLog);
             printf("ERROR: PROGRAM_LINKING_ERROR in '%s':\n%s\n", m_shaderName.c_str(), infoLog);
+            return false;
         }
     }
+    return true;
 }
 
 void ShaderProgram::CreateShader(GLuint program, const GLchar *source, GLenum type) {
@@ -31,10 +34,10 @@ void ShaderProgram::CreateShader(GLuint program, const GLchar *source, GLenum ty
     }
 
     source = src.c_str();
-    GLuint shader = glCreateShader(type);
+    const GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, nullptr);
     glCompileShader(shader);
-    CheckCompileErrors(shader, 1);
+    (void)CheckCompileErrors(shader, 1);
     glAttachShader(program, shader);
     glDeleteShader(shader);
 }
@@ -57,15 +60,27 @@ void ShaderProgram::Load(const GLchar *vertexSource, const GLchar *fragmentSourc
     if (vertexSource) CreateShader(m_program, vertexSource, GL_VERTEX_SHADER);
     if (fragmentSource) CreateShader(m_program, fragmentSource, GL_FRAGMENT_SHADER);
     glLinkProgram(m_program);
-    CheckCompileErrors(m_program, 0);
+    if (!CheckCompileErrors(m_program, 0)) {
+        printf("Error: shader %s is not valid.\n", m_shaderName.c_str());
+		glDeleteProgram(m_program);
+		m_program = 0;
+    }
 }
 
-void ShaderProgram::Use() {
+void ShaderProgram::Use() const {
+    if (!m_program) {
+        printf("Error: shader %s is not valid.\n", m_shaderName.c_str());
+	    return;
+    }
     glUseProgram(m_program);
 }
 
-void ShaderProgram::AddUniformBufferBinding(std::string_view name, GLuint bindingIndex) {
-    GLuint blockIndex = glGetUniformBlockIndex(m_program, name.data());
+void ShaderProgram::AddUniformBufferBinding(std::string_view name, GLuint bindingIndex) const {
+    if (!m_program) {
+        printf("Error: shader %s is not valid.\n", m_shaderName.c_str());
+	    return;
+    }
+	const GLuint blockIndex = glGetUniformBlockIndex(m_program, name.data());
     if (blockIndex == GL_INVALID_INDEX) {
         printf("ERROR: SHADER_UNIFORM_BLOCK_NOT_FOUND in '%s':\n%s\n", m_shaderName.c_str(), name.data());
         return;
@@ -74,8 +89,12 @@ void ShaderProgram::AddUniformBufferBinding(std::string_view name, GLuint bindin
 }
 
 void ShaderProgram::SetTexture(std::string_view name, GLenum target, GLuint index, GLuint texture) {
+    if (!m_program) {
+        printf("Error: shader %s is not valid.\n", m_shaderName.c_str());
+	    return;
+    }
     GLuint location;
-    auto it = m_uniformLocations.find(name.data());
+    const auto it = m_uniformLocations.find(name.data());
     if (it != m_uniformLocations.end()) {
         location = it->second;
     } else {

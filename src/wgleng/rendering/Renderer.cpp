@@ -1,7 +1,6 @@
 #include "Renderer.h"
 
 #include <emscripten/fetch.h>
-#include <emscripten/html5_webgl.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_map>
@@ -18,12 +17,9 @@
 #include "Text.h"
 
 Renderer::Renderer()
-	: m_viewportWidth{1}, m_viewportHeight{1}, m_csmWidth{1024}, m_csmHeight{1024},
-	  m_gbuffer(m_viewportWidth, m_viewportHeight),
-	  m_csmbuffer(m_csmWidth, m_csmHeight, {100, 500, 1000}) {
+	: m_viewportWidth{640}, m_viewportHeight{480} {
 	CheckExtensionSupport();
-
-	ReloadShaders();
+	SetSettings(m_settings, true);
 
 	// GL settings
 	glEnable(GL_CULL_FACE);
@@ -39,7 +35,12 @@ void Renderer::SetViewportSize(int32_t width, int32_t height) {
 	if (m_viewportWidth == width && m_viewportHeight == height) return;
 	m_viewportWidth = width;
 	m_viewportHeight = height;
-	m_gbuffer.Resize(width, height);
+	if (m_settings.resolution.automatic) {
+		auto newSettings = m_settings;
+		newSettings.resolution.width = width;
+		newSettings.resolution.height = height;
+		SetSettings(newSettings, false);
+	}
 }
 void Renderer::LoadShaderFromFile(const std::string& file) {
 	if (file.empty()) {
@@ -91,11 +92,13 @@ void Renderer::LoadShaderFromFile(const std::string& file) {
 	emscripten_fetch(&attr, ("http://localhost:8000/rendering/" + std::string(file)).c_str());
 }
 void Renderer::ReloadShaders(ShaderType shaders) {
+	if (shaders == ShaderType::NONE) return;
+	if (m_shadersLoading) return;
 	m_shadersLoading = true;
 	printf("Loading shaders ...\n");
 
 	// mesh
-	if (static_cast<uint64_t>(shaders) & static_cast<uint64_t>(ShaderType::MESH)) {
+	if (!!(shaders & ShaderType::MESH)) {
 		m_meshProgram = std::make_unique<ShaderProgram>("mesh");
 		m_meshProgram->SetConstant("MODELS_PER_UBO", std::to_string(m_matricesPerUniformBuffer));
 
@@ -114,19 +117,9 @@ void Renderer::ReloadShaders(ShaderType shaders) {
         #endif
 	}
 	// lighting
-	if (static_cast<uint64_t>(shaders) & static_cast<uint64_t>(ShaderType::LIGHTING)) {
+	if (!!(shaders & ShaderType::LIGHTING)) {
 		m_lightingProgram = std::make_unique<ShaderProgram>("lighting");
 		m_lightingProgram->SetConstant("MATERIALS_PER_UBO", std::to_string(m_materialsPerUniformBuffer));
-		m_lightingProgram->SetConstant("MAX_FRUSTUMS", std::to_string(m_maxCSMFrustums));
-		m_lightingProgram->SetConstant("CASCADE_COUNT", std::to_string(m_csmbuffer.GetFrustumCount()));
-		m_lightingProgram->SetConstant("CASCADE_SPLITS", [&] {
-			std::string str = "";
-			const auto& cascades = m_csmbuffer.GetCascades();
-			for (int i = 0; i < cascades.size(); i++) {
-				str += std::to_string(cascades[i]) + (i == cascades.size() - 1 ? "" : ",");
-			}
-			return str;
-		}());
 		const auto& highlights = Highlights::GetHighlights();
 		m_lightingProgram->SetConstant("HIGHLIGHT_COUNT", std::to_string(highlights.size()));
 		m_lightingProgram->SetConstant("HIGHLIGHT_COLORS", [&] {
@@ -134,6 +127,26 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 			for (int i = 0; i < highlights.size(); i++) {
 				str += std::format("vec3({},{},{})", highlights[i].color.r, highlights[i].color.g, highlights[i].color.b)
 						+ (i == highlights.size() - 1 ? "" : ",");
+			}
+			return str;
+		}());
+		m_lightingProgram->SetConstant("OUTLINES",
+			m_settings.outlines == RendererSettings::OutlinePreset::OFF ? "0" : "1"
+		);
+		m_lightingProgram->SetConstant("SHADOWS",
+			m_settings.shadows == RendererSettings::ShadowPreset::OFF ? "0" : "1"
+		);
+		std::string pcf = "1";
+		if (m_settings.shadows == RendererSettings::ShadowPreset::OFF) pcf = "0";
+		if (m_settings.shadows == RendererSettings::ShadowPreset::LOW) pcf = "0";
+		m_lightingProgram->SetConstant("SHADOW_PCF", pcf);
+		m_lightingProgram->SetConstant("MAX_FRUSTUMS", std::to_string(m_maxCSMFrustums));
+		m_lightingProgram->SetConstant("CASCADE_COUNT", std::to_string(m_csmbuffer.GetFrustumCount()));
+		m_lightingProgram->SetConstant("CASCADE_SPLITS", [&] {
+			std::string str = "";
+			const auto& cascades = m_csmbuffer.GetCascades();
+			for (int i = 0; i < cascades.size(); i++) {
+				str += std::to_string(cascades[i]) + (i == cascades.size() - 1 ? "" : ",");
 			}
 			return str;
 		}());
@@ -153,7 +166,7 @@ void Renderer::ReloadShaders(ShaderType shaders) {
         #endif
 	}
 	// csm
-	if (static_cast<uint64_t>(shaders) & static_cast<uint64_t>(ShaderType::CSM)) {
+	if (!!(shaders & ShaderType::CSM)) {
 		m_csmPrograms.resize(m_csmbuffer.GetFrustumCount());
 		for (int i = 0; i < m_csmPrograms.size(); i++) {
 			auto& csmProgram = m_csmPrograms[i];
@@ -178,7 +191,7 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 		}
 	}
 	// text
-	if (static_cast<uint64_t>(shaders) & static_cast<uint64_t>(ShaderType::TEXT)) {
+	if (!!(shaders & ShaderType::TEXT)) {
 		m_textProgram = std::make_unique<ShaderProgram>("text");
 
 		#ifdef SHADER_HOT_RELOAD
@@ -195,8 +208,30 @@ void Renderer::ReloadShaders(ShaderType shaders) {
 		m_textProgram->Load(vertexSource, fragmentSource);
 		#endif
 	}
+	// text
+	if (!!(shaders & ShaderType::FXAA)) {
+		m_fxaaProgram = std::make_unique<ShaderProgram>("fxaa");
+		std::string val = "0";
+		if (m_settings.fxaa == RendererSettings::FXAAPreset::LOW) val = "1";
+		else if (m_settings.fxaa == RendererSettings::FXAAPreset::HIGH) val = "2";
+		m_fxaaProgram->SetConstant("FXAA_PRESET", val);
+
+		#ifdef SHADER_HOT_RELOAD
+		m_shaderLoadingPrograms.push_back(&m_fxaaProgram);
+		m_shaderLoadingQueue.push_back("shaders/fxaa.vs");
+		m_shaderLoadingQueue.push_back("shaders/fxaa.fs");
+		#else
+		const GLchar vertexSource[] = {
+					#include "shaders/fxaa.vs"
+		};
+		const GLchar fragmentSource[] = {
+					#include "shaders/fxaa.fs"
+		};
+		m_fxaaProgram->Load(vertexSource, fragmentSource);
+		#endif
+	}
 	// debug
-	if (static_cast<uint64_t>(shaders) & static_cast<uint64_t>(ShaderType::DEBUG)) {
+	if (!!(shaders & ShaderType::DEBUG)) {
 		m_debugProgram = std::make_unique<ShaderProgram>("debug");
 
         #ifdef SHADER_HOT_RELOAD
@@ -221,10 +256,6 @@ void Renderer::ReloadShaders(ShaderType shaders) {
     #else
 	SetupUniforms();
     #endif
-}
-void Renderer::CheckExtensionSupport() {
-	//auto exts = emscripten_webgl_get_supported_extensions();
-	//printf("%s\n", exts);
 }
 void Renderer::SetupUniforms() {
 	// setup uniforms
@@ -266,6 +297,67 @@ void Renderer::SetupUniforms() {
 	m_shadersLoading = false;
 	printf("Shaders loaded.\n");
 }
+void Renderer::CheckExtensionSupport() {
+	//auto exts = emscripten_webgl_get_supported_extensions();
+	//printf("%s\n", exts);
+}
+void Renderer::SetFramebuffer(uint32_t framebuffer) {
+	if (m_currentFramebuffer == framebuffer) return;
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+	m_currentFramebuffer = framebuffer;
+}
+void Renderer::SetRenderSize(uint32_t x, uint32_t y) {
+	if (m_currentRenderSizeX == x && m_currentRenderSizeY == y) return;
+	glViewport(0, 0, static_cast<int32_t>(x), static_cast<int32_t>(y));
+	m_currentRenderSizeX = x;
+	m_currentRenderSizeY = y;
+}
+void Renderer::SetFaceCullingFront() {
+	if (m_faceCullingFront) return;
+	glCullFace(GL_FRONT);
+	m_faceCullingFront = true;
+}
+void Renderer::SetFaceCullingBack() {
+	if (!m_faceCullingFront) return;
+	glCullFace(GL_BACK);
+	m_faceCullingFront = false;
+}
+void Renderer::SetSettings(const RendererSettings& settings, bool force) {
+	ShaderType shaders = ShaderType::NONE;
+	if (force || m_settings.resolution.width != settings.resolution.width ||
+		m_settings.resolution.height != settings.resolution.height) {
+		m_settings.resolution = settings.resolution;
+		m_gbuffer.Resize(m_settings.resolution.width, m_settings.resolution.height);
+		m_fxaabuffer.Resize(m_settings.resolution.width, m_settings.resolution.height);
+	}
+	if (force || m_settings.fxaa != settings.fxaa) {
+		m_settings.fxaa = settings.fxaa;
+		shaders |= ShaderType::FXAA;
+	}
+	if (force || m_settings.shadows != settings.shadows) {
+		m_settings.shadows = settings.shadows;
+		shaders |= ShaderType::LIGHTING | ShaderType::CSM;
+		if (m_settings.shadows == RendererSettings::ShadowPreset::LOW) {
+			m_csmbuffer.ResizeAndSetCascades(1024, 1024, {200, 600});
+		}
+		else if (m_settings.shadows == RendererSettings::ShadowPreset::MEDIUM) {
+			m_csmbuffer.ResizeAndSetCascades(2048, 2048, {150, 500, 1000});
+		}
+		else if (m_settings.shadows == RendererSettings::ShadowPreset::HIGH) {
+			m_csmbuffer.ResizeAndSetCascades(4096, 4096, {100, 300, 800, 1500});
+		}
+		else {
+			m_csmbuffer.ResizeAndSetCascades(1, 1, {100});
+		}
+	}
+	if (force || m_settings.outlines != settings.outlines) {
+		m_settings.outlines = settings.outlines;
+		shaders |= ShaderType::LIGHTING;
+	}
+
+	if (force) shaders = ShaderType::ALL;
+	ReloadShaders(shaders);
+}
 void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	// check for shader reloads
 	if (Highlights::HasChanged(true)) {
@@ -290,20 +382,21 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	Metrics::MeasureDurationStop(Metric::UPDATE_UNIFORMS, true);
 
 	// setup for shadows
-	glViewport(0, 0, m_csmWidth, m_csmHeight);
-	glCullFace(GL_FRONT);
-	
+	if (m_settings.shadows != RendererSettings::ShadowPreset::OFF) {
+		SetRenderSize(m_csmbuffer.GetWidth(), m_csmbuffer.GetHeight());
+		SetFaceCullingFront();
 
-	Metrics::MeasureDurationStart(Metric::RENDER_SHADOWS);
-	RenderShadowMaps();
-	Metrics::MeasureDurationStop(Metric::RENDER_SHADOWS, true);
+		Metrics::MeasureDurationStart(Metric::RENDER_SHADOWS);
+		RenderShadowMaps();
+		Metrics::MeasureDurationStop(Metric::RENDER_SHADOWS, true);
+	}
 
 	// setup for meshes
-	glViewport(0, 0, m_viewportWidth, m_viewportHeight);
-	glCullFace(GL_BACK);
+	SetRenderSize(m_settings.resolution.width, m_settings.resolution.height);
+	SetFaceCullingBack();
 
 	// setup gbuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, m_gbuffer.GetFBO());
+	SetFramebuffer(m_gbuffer.GetFBO());
 	glClear(GL_DEPTH_BUFFER_BIT);
 	glm::uvec4 uclearColor{0};
 	glm::vec4 fclearColor{0};
@@ -326,12 +419,24 @@ void Renderer::Render(bool isHidden, const std::shared_ptr<Scene>& scene) {
 	Metrics::MeasureDurationStop(Metric::RENDER_TEXT, true);
 
 	// lighting
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	if (m_settings.fxaa != RendererSettings::FXAAPreset::OFF) SetFramebuffer(m_fxaabuffer.GetFBO());
+	else {
+		SetFramebuffer(0);
+		SetRenderSize(m_viewportWidth, m_viewportHeight);
+	}
 
 	Metrics::MeasureDurationStart(Metric::RENDER_LIGHTING);
 	RenderLighting();
 	Metrics::MeasureDurationStop(Metric::RENDER_LIGHTING, true);
 
+	// FXAA
+	if (m_settings.fxaa != RendererSettings::FXAAPreset::OFF) {
+		SetFramebuffer(0);
+		SetRenderSize(m_viewportWidth, m_viewportHeight);
+		Metrics::MeasureDurationStart(Metric::RENDER_FXAA);
+		RenderFXAA();
+		Metrics::MeasureDurationStop(Metric::RENDER_FXAA, true);
+	}
 	// imgui
 	Metrics::Show();
 	ImGui::Render();
@@ -462,7 +567,7 @@ void Renderer::UpdateRenderableMeshes(const std::shared_ptr<Scene>& scene, const
 }
 void Renderer::UpdateUniforms(const std::shared_ptr<Scene>& scene, const std::vector<glm::mat4>& csmMatrices) {
 	auto& camera = scene->GetCamera();
-	camera->Update(m_viewportWidth, m_viewportHeight);
+	camera->Update(m_settings.resolution.width, m_settings.resolution.height);
 	const glm::mat4 camProjView = camera->GetProjectionMatrix() * camera->GetViewMatrix();
 
 	m_cameraUniform.Update({
@@ -474,7 +579,10 @@ void Renderer::UpdateUniforms(const std::shared_ptr<Scene>& scene, const std::ve
 		.sunlightDir = glm::normalize(scene->sunlightDir),
 		.sunlightColor = {1.0, 0.7, 0.8, 3.0},
 		.cameraPos = camera->position,
-		.viewportSize_nearFarPlane = {m_viewportWidth, m_viewportHeight, camera->GetNearPlane(), camera->GetFarPlane()},
+		.viewportSize_nearFarPlane = {
+			m_settings.resolution.width, m_settings.resolution.height,
+			camera->GetNearPlane(), camera->GetFarPlane()
+		},
 		.invProjView = glm::inverse(camProjView)
 	});
 
@@ -486,9 +594,11 @@ void Renderer::UpdateUniforms(const std::shared_ptr<Scene>& scene, const std::ve
 		m_materialCount = materialCount;
 	}
 
-	CSMUniform csmData;
-	std::ranges::copy(csmMatrices, csmData.lightSpaceMatrices);
-	m_csmUniform.Update(csmData);
+	if (m_settings.shadows != RendererSettings::ShadowPreset::OFF) {
+		CSMUniform csmData;
+		std::ranges::copy(csmMatrices, csmData.lightSpaceMatrices);
+		m_csmUniform.Update(csmData);
+	}
 
 	// resize ubo if needed
 	const auto& mats = m_renderableMeshesState.matricesToUpload;
@@ -506,7 +616,7 @@ void Renderer::RenderShadowMaps() {
 		const auto& csmProgram = m_csmPrograms[i];
 		csmProgram->Use();
 		const GLuint fbo = m_csmbuffer.GetFBOs()[i];
-		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+		SetFramebuffer(fbo);
 		glClear(GL_DEPTH_BUFFER_BIT);
 		uint32_t currentVao = 0;
 		for (const auto& batch : m_renderableMeshesState.csmBatches[i]) {
@@ -687,5 +797,10 @@ void Renderer::RenderLighting() const {
 	m_lightingProgram->SetTexture("tMaterial", GL_TEXTURE_2D, 1, m_gbuffer.GetMaterialTexture());
 	m_lightingProgram->SetTexture("tNormal", GL_TEXTURE_2D, 2, m_gbuffer.GetNormalTexture());
 	m_lightingProgram->SetTexture("tShadow", GL_TEXTURE_2D_ARRAY, 3, m_csmbuffer.GetDepthTextureArray());
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+void Renderer::RenderFXAA() const {
+	m_fxaaProgram->Use();
+	m_fxaaProgram->SetTexture("tColor", GL_TEXTURE_2D, 0, m_fxaabuffer.GetColorTexture());
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 }

@@ -2,9 +2,9 @@ R"(#version 300 es
 precision mediump float;
 out vec4 gColor;
 
-#define OUTLINE 1
-#define SHADOWS 1
-#define SHADOW_PCF 1
+#define OUTLINES <<OUTLINES>>
+#define SHADOWS <<SHADOWS>>
+#define SHADOW_PCF <<SHADOW_PCF>>
 
 uniform sampler2D tDepth;
 uniform mediump usampler2D tMaterial;
@@ -69,14 +69,14 @@ void main() {
     vec3 color = materials[materialId].diffuse.rgb * sunlightColor.rgb * lightStrength;
 
     // add shadow
-#if SHADOWS
+#if SHADOWS == 1
     float shadow = getShadow(position, normal, lDepth);
     shadow = 1.0 - shadow * 0.8;
     color *= shadow;
 #endif
 
     // add outline
-#if OUTLINE
+#if OUTLINES == 1
     vec3 outlineColor = highlightColor;
     float outline = getOutline(normal, lDepth);
     color = mix(color, outlineColor, outline);
@@ -151,13 +151,13 @@ float getShadow(vec3 fragPosWorldSpace, vec3 normal, float lDepth) {
     if (fragDepth > 0.999) return 0.0;
 
     float lightDirBias = dot(normal, sunlightDir);
-    float bias = max(lightDirBias * -100.0, 0.04 / cascadeSplits[layer]);
+    float bias = max(lightDirBias * -100.0, 0.004 / cascadeSplits[layer]);
 #if SHADOW_PCF == 0
     float depth = texture(tShadow, vec3(projCoords.xy, layer)).r;
     return (fragDepth + bias) > depth ? 1.0 : 0.0;
 #else
     // PCF
-    bias -= cascadeSplits[layer] * 0.00000025;
+    bias -= cascadeSplits[layer] * 0.0000004;
     float shadow = 0.0;
     vec2 texelSize = 0.8 / vec2(textureSize(tShadow, 0));
     for(int x = -1; x <= 1; x++) {
