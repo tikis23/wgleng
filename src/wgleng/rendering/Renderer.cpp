@@ -760,7 +760,9 @@ void Renderer::RenderText(const std::shared_ptr<Scene>& scene) {
 	}
 	// 2d text
 	glDisable(GL_DEPTH_TEST);
-	const glm::mat4 ortho = glm::ortho(0.0f, static_cast<float>(m_viewportWidth), 0.0f, static_cast<float>(m_viewportHeight));
+	const glm::mat4 ortho = glm::ortho(
+		0.0f, static_cast<float>(m_settings.resolution.width),
+		0.0f, static_cast<float>(m_settings.resolution.height));
 	for (const auto& [fontName, textArray] : textMap) {
 		if (textArray.empty()) continue;
 		// set font texture
@@ -774,11 +776,17 @@ void Renderer::RenderText(const std::shared_ptr<Scene>& scene) {
 				model = text->transform;
 			}
 			else {
-				model = glm::translate(model, text->position + glm::vec3{0, 0, 1});
+				auto textPos = text->position;
+				auto textScale = text->scale;
+				if (text->normalizedCoordinates) {
+					textPos *= glm::vec3{ m_settings.resolution.width, m_settings.resolution.height, 1 };
+					textScale *= glm::vec3{ m_settings.resolution.width, m_settings.resolution.height, 1 };
+				}
+				model = glm::translate(model, textPos + glm::vec3{0, 0, 1});
 				model = glm::rotate(model, glm::radians(text->rotation.x), glm::vec3(1, 0, 0));
 				model = glm::rotate(model, glm::radians(text->rotation.y), glm::vec3(0, 1, 0));
 				model = glm::rotate(model, glm::radians(text->rotation.z), glm::vec3(0, 0, 1));
-				model = glm::scale(model, text->scale);
+				model = glm::scale(model, textScale);
 			}
 			m_textUniform.Update({
 				.projxview = ortho,

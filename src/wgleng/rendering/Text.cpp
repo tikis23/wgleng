@@ -11,19 +11,20 @@ void Text::Init() {
 		return;
 	}
 
-	LoadFont("arial", {Arial_ttf, Arial_ttf_len});
+	LoadFont("arial", {Arial_ttf, Arial_ttf_len}, 48*2);
+	LoadFont("arial-big", {Arial_ttf, Arial_ttf_len}, 48*5);
 }
 void Text::Deinit() {
 	FT_Done_FreeType(m_ftlib);
 }
 
-void Text::LoadFont(std::string_view name, std::span<unsigned char> fontData) {
+void Text::LoadFont(std::string_view name, std::span<unsigned char> fontData, int size) {
 	FT_Face face;
 	if (const FT_Error error = FT_New_Memory_Face(m_ftlib, fontData.data(), fontData.size(), 0, &face)) {
 		printf("Failed to load font %s: %d\n", name.data(), error);
 		return;
 	}
-	int scale = 48;
+	const int scale = size;
 	FT_Set_Pixel_Sizes(face, 0, scale);
 	// only load first 128 ASCII chars
 	std::shared_ptr<fontData_t>& font = m_fonts[std::string(name)];
@@ -120,7 +121,7 @@ DrawableText::DrawableText(const std::shared_ptr<Text::fontData_t>& fontDataPtr,
 					break;
 				}
 				highlights.push_back({i, hl});
-				str.erase(highlightStrTo + 2);
+				str.erase(i, highlightStrTo + 2);
 			}
 		}
 	}
@@ -265,6 +266,17 @@ DrawableText::DrawableText(const std::shared_ptr<Text::fontData_t>& fontDataPtr,
 		vertices.push_back({scale * glm::vec2{xPos + w, yPos}, {uv.x, uv.y}, charData.textureId, highlightId});
 		vertices.push_back({scale * glm::vec2{xPos + w, yPos + h}, {uv.x, 0}, charData.textureId, highlightId});
 	}
+
+	// find text size
+	m_textSize = { 0, 0 };
+	float maxY = 0;
+	for (auto& vert : vertices) {
+		m_textSize.x = glm::max(m_textSize.x, vert.position.x);
+		m_textSize.y = glm::min(m_textSize.y, vert.position.y);
+		maxY = glm::max(maxY, vert.position.y);
+	}
+	m_textSize.y = glm::abs(maxY - m_textSize.y);
+
 	// upload verts
 	glGenVertexArrays(1, &m_vao);
 	glBindVertexArray(m_vao);

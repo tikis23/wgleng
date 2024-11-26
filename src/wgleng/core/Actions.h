@@ -53,6 +53,9 @@ public:
 		std::vector<std::pair<uint64_t, Callback>>* m_listeners{ nullptr };
 	};
 
+	bool IsEnabled(ActionType action) const {
+		return m_actions[static_cast<size_t>(action)].enabled;
+	}
 	void Enable(ActionType action) {
 		m_actions[static_cast<size_t>(action)].enabled = true;
 	}

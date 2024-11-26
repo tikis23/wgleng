@@ -17,12 +17,11 @@ public:
 
 	static void Init();
 	static void Deinit();
-	static void LoadFont(std::string_view name, std::span<unsigned char> fontData);
+	static void LoadFont(std::string_view name, std::span<unsigned char> fontData, int size = 48);
 	static void UnloadFont(std::string_view name);
 
 	// To use '$' in text, use "$$". To set highlightId use "$<highlightId>".
 	static std::shared_ptr<DrawableText> CreateText(std::string_view fontName, std::string_view text, float wrap = 0);
-
 private:
 	friend class DrawableText;
 	static inline FT_Library m_ftlib;
@@ -55,21 +54,33 @@ public:
 	uint32_t GetDrawCount() const { return m_drawCount; }
 	const std::string& GetFontName() const { return m_fontData->fontName; }
 
+	glm::vec2 GetTextSize() const { return m_textSize; }
+
 	// if true, text is 2D
 	// if false, text is 3D
+	// true by default
 	bool useOrtho = true;
 	glm::vec3 position{0, 0, 0};
 	glm::vec3 rotation{0, 0, 0};
 	glm::vec3 scale{1, 1, 1};
 
+	// useful for 2D text. Ignored by 3D text.
+	// if true, position is in range [0, 1]
+	// if false, position is in world space / screen space
+	// false by default
+	bool normalizedCoordinates = false;
+
 	// if true, use transform matrix for rendering. Pos, rot, and scale may still be used as local transforms.
 	// if false, use pos, rot, and scale for rendering. Transform matrix will be ignored.
+	// false by default
 	bool useTransform = false;
 	glm::mat4 transform{1};
 
 private:
 	friend class Text;
 	DrawableText(const std::shared_ptr<Text::fontData_t>& fontDataPtr, std::string_view text, float wrap);
+
+	glm::vec2 m_textSize{};
 
 	struct textVertex_t {
 		glm::vec2 position;

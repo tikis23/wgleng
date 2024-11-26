@@ -53,7 +53,7 @@ public:
 		FXAA     = 1U << 5,
 	};
 
-	RendererSettings GetSettings() const { return m_settings; }
+	const RendererSettings& GetSettings() const { return m_settings; }
 	void SetSettings(const RendererSettings& settings, bool force);
 
 	void ReloadShaders(ShaderType shaders = ShaderType::ALL);
